@@ -1,21 +1,24 @@
 class_name TreeHandlerProject
 extends RefCounted
 
-## Bridge op for reading project settings: get_setting. Supports a simple path
-## filter so an agent can read a single value or a whole subtree of
-## ProjectSettings (project.godot). Writing settings (project_set_setting) is
-## intentionally NOT implemented yet: mutating project.godot is unsafe and easy
-## to get wrong, so it is left out for now (see README).
+## Bridge ops for project settings: get_setting and set_main_scene. Reading any
+## setting is supported; general writes are intentionally NOT implemented
+## (mutating project.godot is unsafe and easy to get wrong). set_main_scene is
+## the one narrow, auditable exception: a targeted single-key write of
+## application/run/main_scene that validates the scene before persisting.
+const MAIN_SCENE_SETTING := "application/run/main_scene"
 
 
 static func op_names() -> Array[String]:
-	return ["get_setting"]
+	return ["get_setting", "set_main_scene"]
 
 
 static func handle(server, op: String, args: Dictionary) -> Array:
 	match op:
 		"get_setting":
 			return get_setting(str(args.get("path", "")))
+		"set_main_scene":
+			return set_main_scene(str(args.get("scene", "")))
 	return ["unknown op: %s" % op, null]
 
 
@@ -37,6 +40,29 @@ static func get_setting(path: String) -> Array:
 			continue
 		values[name] = _json_value(ProjectSettings.get_setting(name))
 	return ["", {"path": path, "count": values.size(), "settings": values}]
+
+
+## Set the project's main scene (application/run/main_scene) and persist it to
+## project.godot. Validates that `scene` is a res:// .tscn that loads as a
+## PackedScene before writing. This is the project's single auditable write op.
+static func set_main_scene(scene: String) -> Array:
+	scene = scene.strip_edges()
+	if scene.is_empty():
+		return ["scene (res:// path) is required", null]
+	if not scene.begins_with("res://") or not scene.ends_with(".tscn"):
+		return ["scene must be a res:// .tscn path: %s" % scene, null]
+	if ResourceLoader.exists(scene):
+		var res: Variant = load(scene)
+		if res == null or not res is PackedScene:
+			return ["scene does not load as a PackedScene: %s" % scene, null]
+	else:
+		return ["scene not found: %s" % scene, null]
+	var previous := ProjectSettings.get_setting(MAIN_SCENE_SETTING, "")
+	ProjectSettings.set_setting(MAIN_SCENE_SETTING, scene)
+	var err := ProjectSettings.save()
+	if err != OK:
+		return ["failed to save project.godot (%s)" % error_string(err), null]
+	return ["", {"path": scene, "previous": str(previous)}]
 
 
 static func _matches(name: String, pattern: String) -> bool:

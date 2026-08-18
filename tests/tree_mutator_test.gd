@@ -16,6 +16,7 @@ func _init() -> void:
 	failed = _test_set() or failed
 	failed = _test_remove() or failed
 	failed = _test_move() or failed
+	failed = _test_attach_script() or failed
 	failed = _test_errors() or failed
 	failed = _test_action_naming() or failed
 	print("TREE MUTATOR TEST ", "PASS" if not failed else "FAIL")
@@ -138,6 +139,30 @@ func _test_move() -> bool:
 	return failed[0]
 
 
+func _test_attach_script() -> bool:
+	var failed := [false]
+	var scene := _build_scene()
+	var ur := UndoRedo.new()
+	var script_path := "res://tests/fixture_agent_node.gd"
+	var outcome: Array = TreeMutatorScript.attach_script(scene, ur, {"path": "/Building/Roof", "script": script_path})
+	_check(outcome[0].is_empty(), "attach_script should succeed: %s" % str(outcome[0]), failed)
+	var roof: Node = scene.get_node_or_null("Building/Roof")
+	_check(roof != null and roof.get_script() != null, "script attached", failed)
+	ur.undo()
+	_check(roof != null and roof.get_script() == null, "undo detaches script", failed)
+	ur.redo()
+	_check(roof != null and roof.get_script() != null, "redo reattaches script", failed)
+
+	var temp_script := "res://tmp_incompatible.gd"
+	var f := FileAccess.open(temp_script, FileAccess.WRITE)
+	f.store_string("extends Control\n")
+	f.close()
+	var incompatible: Array = TreeMutatorScript.attach_script(scene, ur, {"path": "/Building", "script": temp_script})
+	_check(not incompatible[0].is_empty(), "incompatible base type errors: %s" % str(incompatible[0]), failed)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(temp_script))
+	return failed[0]
+
+
 func _test_action_naming() -> bool:
 	var failed := [false]
 	var scene := _build_scene()
@@ -175,4 +200,10 @@ func _test_errors() -> bool:
 		"remove scene root errors", failed)
 	_check(not TreeMutatorScript.move(scene, ur, {"path": "/Building", "parent_path": "/Building/Roof"})[0].is_empty(),
 		"move into descendant errors", failed)
+	_check(not TreeMutatorScript.attach_script(scene, ur, {"path": "/Missing", "script": "res://tests/fixture_agent_node.gd"})[0].is_empty(),
+		"attach to missing path errors", failed)
+	_check(not TreeMutatorScript.attach_script(scene, ur, {"path": "/Building", "script": ""})[0].is_empty(),
+		"attach with empty script errors", failed)
+	_check(not TreeMutatorScript.attach_script(scene, ur, {"path": "/Building", "script": "res://does_not_exist.gd"})[0].is_empty(),
+		"attach with missing script errors", failed)
 	return failed[0]

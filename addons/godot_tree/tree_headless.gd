@@ -7,7 +7,7 @@ extends SceneTree
 ##
 ## Run: godot --headless --path <project> -s addons/godot_tree/tree_headless.gd -- <scene_path> <op> [--args <json>]
 ## Ops: scene | tree | query | children | props | inspect | find |
-##      set | add | remove | move
+##      set | add | remove | move | attach_script
 ## When `--args` is omitted, positional args build the op args (see _parse_args).
 
 const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
@@ -77,6 +77,9 @@ func _build_args_from_positional(pos: Array[String]) -> void:
 			_args["node_name"] = pos[2] if pos.size() > 2 else ""
 		"remove", "move", "query", "children", "props", "inspect":
 			_args["path"] = pos[0] if pos.size() > 0 else "/"
+		"attach_script":
+			_args["path"] = pos[0] if pos.size() > 0 else "/"
+			_args["script"] = pos[1] if pos.size() > 1 else ""
 		"tree":
 			_args["path"] = pos[0] if pos.size() > 0 else "/"
 			if pos.size() > 1:
@@ -129,6 +132,8 @@ func _run() -> Array:
 			return _write(root, TreeMutatorScript.remove(root, null, _args))
 		"move":
 			return _write(root, TreeMutatorScript.move(root, null, _args))
+		"attach_script":
+			return _write(root, TreeMutatorScript.attach_script(root, null, _args))
 	return ["unknown op: %s" % _op, null]
 
 

@@ -75,32 +75,34 @@ back.
    editor, so it works from any workspace that has this plugin enabled.)
 
 3. Use the tools in your prompts, e.g. `use godot-live_tree_find to locate the
-   Player node`.
+Player node`.
 
 ### Tools
 
-| Tool | Args | Description |
-|------|------|-------------|
-| `godot-live_tree_ping` | – | Bridge + scene health check |
-| `godot-live_tree_editor` | – | Engine/project info: Godot version, project name, project path, current scene |
-| `godot-live_tree_scene` | – | Current scene: root name/type, node count, unsaved-modified flag |
-| `godot-live_tree_open_scenes` | – | Scenes currently open in the editor: `{"paths": [...], "scenes": {path: {name, node_count}}}` |
-| `godot-live_tree_query` | `path scene?` | Summary of one node |
-| `godot-live_tree_children` | `path scene?` | Direct children of a node |
-| `godot-live_tree_props` | `path scene?` | Exported (editor-visible) properties |
-| `godot-live_tree_find` | `path? type? name? script? has_prop? path_pattern? scene?` | Filtered search (`name`/`script` accept globs; `path_pattern` matches absolute paths segment-wise, e.g. `/A/*/C`) |
-| `godot-live_tree_inspect` | `path scene?` | Semantic output via `agent_inspect()` |
-| `godot-live_tree_dump` | `path? depth? scene?` | Nested tree dump (depth 0 = node only, default 2) |
-| `godot-live_tree_set` | `path property value scene?` | Set a property (undoable, marks scene unsaved) |
-| `godot-live_tree_add` | `parent_path node_type node_name properties? scene?` | Add a node (undoable, marks scene unsaved) |
-| `godot-live_tree_remove` | `path scene?` | Remove a node (undoable, marks scene unsaved) |
-| `godot-live_tree_move` | `path parent_path index? scene?` | Reparent/reorder a node (undoable, marks scene unsaved) |
-| `godot-live_create_scene` | `root_type root_name save_path children?` | Build a whole scene in-memory from a declarative nested spec and save it to a `.tscn`; detached (no new-scene editor entry), returns the serialized tree |
-| `godot-live_log_read` | `since? limit?` | Delta-read captured `print`/`push_error`/`push_warning` output (Godot >= 4.5; see below) |
-| `godot-live_log_probe` | `message? level?` | Emit a std output/error log from the editor process to test `log_read` capture |
-| `godot-live_get_uid` | `path? uid?` | Look up a resource UID (Godot 4.4+): pass a `res://` path or a `uid://` string; returns `{"path", "uid"}` for either direction |
-| `godot-live_update_project_uids` | `dry_run?` | Assign a UID to every project resource that lacks one, persisting `.uid` files (Godot 4.4+); mirrors Project > Tools > "Update UIDs". `dry_run` previews without writing |
-| `godot-live_project_get_setting` | `path` | Read a project setting from the live editor's `project.godot`. `path` is either exact (e.g. `application/config/name`, returns `{"path", "value"}`) or a simple filter — a prefix or `*` glob (e.g. `application/*`, returns `{"path", "count", "settings"}` for every match) |
+| Tool                             | Args                                                       | Description                                                                                                                                                                                                                                                                   |
+| -------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `godot-live_tree_ping`           | –                                                          | Bridge + scene health check                                                                                                                                                                                                                                                   |
+| `godot-live_tree_editor`         | –                                                          | Engine/project info: Godot version, project name, project path, current scene                                                                                                                                                                                                 |
+| `godot-live_tree_scene`          | –                                                          | Current scene: root name/type, node count, unsaved-modified flag                                                                                                                                                                                                              |
+| `godot-live_tree_open_scenes`    | –                                                          | Scenes currently open in the editor: `{"paths": [...], "scenes": {path: {name, node_count}}}`                                                                                                                                                                                 |
+| `godot-live_tree_query`          | `path scene?`                                              | Summary of one node                                                                                                                                                                                                                                                           |
+| `godot-live_tree_children`       | `path scene?`                                              | Direct children of a node                                                                                                                                                                                                                                                     |
+| `godot-live_tree_props`          | `path scene?`                                              | Exported (editor-visible) properties                                                                                                                                                                                                                                          |
+| `godot-live_tree_find`           | `path? type? name? script? has_prop? path_pattern? scene?` | Filtered search (`name`/`script` accept globs; `path_pattern` matches absolute paths segment-wise, e.g. `/A/*/C`)                                                                                                                                                             |
+| `godot-live_tree_inspect`        | `path scene?`                                              | Semantic output via `agent_inspect()`                                                                                                                                                                                                                                         |
+| `godot-live_tree_dump`           | `path? depth? scene?`                                      | Nested tree dump (depth 0 = node only, default 2)                                                                                                                                                                                                                             |
+| `godot-live_tree_set`            | `path property value scene?`                               | Set a property (undoable, marks scene unsaved)                                                                                                                                                                                                                                |
+| `godot-live_tree_add`            | `parent_path node_type node_name properties? scene?`       | Add a node (undoable, marks scene unsaved)                                                                                                                                                                                                                                    |
+| `godot-live_tree_remove`         | `path scene?`                                              | Remove a node (undoable, marks scene unsaved)                                                                                                                                                                                                                                 |
+| `godot-live_tree_move`           | `path parent_path index? scene?`                           | Reparent/reorder a node (undoable, marks scene unsaved)                                                                                                                                                                                                                       |
+| `godot-live_attach_script`       | `path script scene?`                                       | Attach an existing `.gd` script (`res://` path) to a node; validates it loads and its base type matches the node (undoable, marks scene unsaved)                                                                                                                               |
+| `godot-live_create_scene`        | `root_type root_name save_path children?`                  | Build a whole scene in-memory from a declarative nested spec and save it to a `.tscn`; detached (no new-scene editor entry), returns the serialized tree                                                                                                                      |
+| `godot-live_log_read`            | `since? limit?`                                            | Delta-read captured `print`/`push_error`/`push_warning` output (Godot >= 4.5; see below)                                                                                                                                                                                      |
+| `godot-live_log_probe`           | `message? level?`                                          | Emit a std output/error log from the editor process to test `log_read` capture                                                                                                                                                                                                |
+| `godot-live_get_uid`             | `path? uid?`                                               | Look up a resource UID (Godot 4.4+): pass a `res://` path or a `uid://` string; returns `{"path", "uid"}` for either direction                                                                                                                                                |
+| `godot-live_update_project_uids` | `dry_run?`                                                 | Assign a UID to every project resource that lacks one, persisting `.uid` files (Godot 4.4+); mirrors Project > Tools > "Update UIDs". `dry_run` previews without writing                                                                                                      |
+| `godot-live_project_get_setting` | `path`                                                     | Read a project setting from the live editor's `project.godot`. `path` is either exact (e.g. `application/config/name`, returns `{"path", "value"}`) or a simple filter — a prefix or `*` glob (e.g. `application/*`, returns `{"path", "count", "settings"}` for every match) |
+| `godot-live_set_main_scene`      | `scene`                                                    | Set the project's main scene (`application/run/main_scene`) in `project.godot` and persist it; validates the scene loads as a `PackedScene`, returns `{"path", "previous"}`                                                                                                    |
 
 Read ops map to the bridge 1:1; mutation ops go through the editor's
 `EditorUndoRedoManager`, so they're **undoable in the editor** (Ctrl+Z) and
@@ -111,7 +113,7 @@ configurable via Editor Settings → `addons/godot_tree/agent_undo_prefix`
 
 `create_scene` is the exception: it builds a new scene **detached** from the
 currently edited scene (in-memory, saved straight to disk via `ResourceSaver`),
-so it is *not* undoable, does *not* mark a scene unsaved, and is not opened as a
+so it is _not_ undoable, does _not_ mark a scene unsaved, and is not opened as a
 new editor scene (there is no new-scene entry point) — open the saved `.tscn`
 with File > Open. `children` is a nested list of
 `{"node_type", "node_name", "properties"?, "children"?}` dicts; properties use
@@ -130,7 +132,7 @@ happens in the MCP server (Python layer):
   copy (undoable, no on-disk write), then **restores your previous active
   scene**. This applies to both reads and writes, so they always reflect the
   live in-memory truth and never trigger a reload prompt.
-- **`scene` given and it is *not* open at all** → a **headless**
+- **`scene` given and it is _not_ open at all** → a **headless**
   `godot --headless` subprocess loads the `.tscn` from disk, runs the same
   `TreeMutator`/`TreeEngine` core (`addons/godot_tree/tree_headless.gd`),
   re-packs and saves it via `ResourceSaver`, and returns the serialized tree.
@@ -144,13 +146,16 @@ a time, while keeping the currently-edited scene fully undoable.
 > existing `.godot` import cache (so they work fine when the editor has already
 > imported the project). v2 plans to rescan/import resources automatically before
 > a headless edit when the cache is missing or stale (e.g. `godot --headless
-> --import`), driven from the Python layer.
+--import`), driven from the Python layer.
 
-> **Project settings are read-only for now.** `project_get_setting` can *read*
-> any setting, but writing settings (`project_set_setting`) is intentionally
-> **not implemented**: mutating `project.godot` is easy to get wrong and can
-> corrupt the project, so it is left out until a safe, auditable write path
-> (e.g. review/undo of agent changes) is designed. Use the editor for edits.
+> **Project settings are mostly read-only.** `project_get_setting` can _read_ any
+> setting, but a general write (`project_set_setting`) is intentionally **not
+> implemented**: mutating `project.godot` is easy to get wrong and can corrupt the
+> project, so it is left out until a safe, auditable write path (e.g. review/undo
+> of agent changes) is designed. Use the editor for general edits. The **one
+> narrow, auditable exception** is `set_main_scene`, which writes only the single
+> `application/run/main_scene` key after validating the target scene loads as a
+> `PackedScene`.
 
 Env vars (optional): `GODOT_TREE_HOST` (default `127.0.0.1`),
 `GODOT_TREE_PORT` (default `41234`, must match the addon's Editor Setting),
@@ -182,6 +187,7 @@ godot --headless -s addons/godot_tree/tree_cli.gd -- set /City/Office visible --
 godot --headless -s addons/godot_tree/tree_cli.gd -- add /City Node2D Office --properties '{"position": [10, 20]}'
 godot --headless -s addons/godot_tree/tree_cli.gd -- create_scene Node2D City res://scenes/city.tscn --children '[{"node_type":"Node2D","node_name":"Plaza"}]'
 godot --headless -s addons/godot_tree/tree_cli.gd -- move /City/Office /
+godot --headless -s addons/godot_tree/tree_cli.gd -- attach_script /City/Office res://scripts/office.gd
 godot --headless -s addons/godot_tree/tree_cli.gd -- remove /City/Office
 godot --headless -s addons/godot_tree/tree_cli.gd -- get_uid res://scenes/city.tscn
 godot --headless -s addons/godot_tree/tree_cli.gd -- get_uid --uid uid://cgqx7mih5boao
@@ -254,28 +260,27 @@ capture logger picks up and the next `log_read` returns.
 > **Scope (open for development).** Capture is currently limited to the editor
 > process's **standard output/error stream** (`print`/`push_error`/`push_warning`).
 > Two channels are **not** captured yet:
+>
 > - **Editor-internal messages** — the gray lines the editor itself emits to the
 >   Output panel outside the std output stream (e.g. bridge/dock activity).
 > - **Running-game output** — logs from a launched game (F5) relayed via the
 >   debugger protocol, which is a separate channel from the editor's std stream.
-> Capturing these is future work (e.g. an `EditorDebuggerPlugin`).
+>   Capturing these is future work (e.g. an `EditorDebuggerPlugin`).
 
 ## Protocol
 
 Newline-delimited JSON over TCP. Request:
 
 ```json
-{"id": 1, "op": "query", "args": {"path": "/City"}}
+{ "id": 1, "op": "query", "args": { "path": "/City" } }
 ```
 
 Response: `{"id": 1, "ok": true, "result": {...}}` or `{"id": 1, "ok": false, "error": "..."}`.
 
-Ops: `ping`, `scene`, `editor`, `open_scenes`, `focus_scene`, `tree`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`, `get_uid`, `update_project_uids`.
+Ops: `ping`, `scene`, `editor`, `open_scenes`, `focus_scene`, `tree`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`, `attach_script`, `create_scene`, `get_uid`, `update_project_uids`, `get_setting`, `set_main_scene`.
 
 ## Next steps
 
-- Script attachment (`attach_script`) and set-main-scene.
-- Scene save/load ops (`save_scene`) to persist mutations to disk.
 - **v2 import rescan (open for development):** before a headless edit, check the
   project's `.godot` import cache; when missing or stale (a source resource is
   newer than the cache), run `godot --headless --import` first, driven from the

@@ -10,6 +10,7 @@ extends SceneTree
 ##      add <parent> <type> <name> [--properties <json>] |
 ##      create_scene <root_type> <root_name> <save_path> [--children <json>] |
 ##      remove <path> | move <path> <new-parent> [--index N] |
+##      attach_script <path> <script> |
 ##      get_uid <path> | get_uid --uid <uid> | update_project_uids [--dry-run]
 
 const DEFAULT_HOST := "127.0.0.1"
@@ -157,6 +158,9 @@ func _build_request() -> Dictionary:
 					args["children"] = parsed_children
 		"remove":
 			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+		"attach_script":
+			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+			args["script"] = _op_args[1] if _op_args.size() > 1 else ""
 		"get_uid":
 			if _filters.has("uid"):
 				args["uid"] = _filters["uid"]

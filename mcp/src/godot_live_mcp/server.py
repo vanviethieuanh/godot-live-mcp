@@ -270,6 +270,18 @@ def tree_move(path: str, parent_path: str = "/", index: int | None = None, scene
 
 
 @mcp.tool()
+def attach_script(path: str, script: str, scene: str = "") -> dict[str, Any]:
+    """Attach an existing GDScript (res:// .gd path) to the node at `path`. Validates the script loads and that its base type is compatible with the node. Undoable and marks the scene unsaved when run on the live edited scene. If `scene` (res:// path) is given and it is not the scene currently being edited, the change is applied and saved on disk headlessly (not undoable)."""
+    return _route(scene, "attach_script", {"path": path, "script": script})
+
+
+@mcp.tool()
+def set_main_scene(scene: str) -> dict[str, Any]:
+    """Set the project's main scene (application/run/main_scene) in project.godot and persist it. `scene` must be a res:// .tscn that loads as a PackedScene. Returns `{"path", "previous"}`. This is the one auditable project-settings write; general writes remain unsupported."""
+    return _bridge("set_main_scene", {"scene": scene})
+
+
+@mcp.tool()
 def get_uid(path: str = "", uid: str = "") -> dict[str, Any]:
     """Look up a resource UID (Godot 4.4+). Pass exactly one of `path` (a res:// path) or `uid` (a uid:// string). Returns `{"path", "uid"}` for either direction; a path without a UID yields `"uid": null`."""
     args: dict[str, Any] = {}

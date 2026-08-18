@@ -421,6 +421,38 @@ async def test_project_get_setting_exact(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.anyio
+async def test_attach_script_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"path": "/City", "script": "res://scripts/city.gd", "previous": None}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("attach_script", {"path": "/City", "script": "res://scripts/city.gd"})
+    assert captured == {"op": "attach_script", "args": {"path": "/City", "script": "res://scripts/city.gd"}}
+    assert result.structured_content["script"] == "res://scripts/city.gd"
+
+
+@pytest.mark.anyio
+async def test_set_main_scene_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"path": "res://main.tscn", "previous": ""}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("set_main_scene", {"scene": "res://main.tscn"})
+    assert captured == {"op": "set_main_scene", "args": {"scene": "res://main.tscn"}}
+    assert result.structured_content == {"path": "res://main.tscn", "previous": ""}
+
+
+@pytest.mark.anyio
 async def test_tree_open_scenes(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
@@ -595,11 +627,13 @@ async def test_tools_are_listed() -> None:
         "tree_add",
         "tree_remove",
         "tree_move",
+        "attach_script",
         "create_scene",
         "log_read",
         "log_probe",
         "get_uid",
         "update_project_uids",
         "project_get_setting",
+        "set_main_scene",
         "tree_open_scenes",
     }

@@ -134,6 +134,38 @@ static func move(root: Node, undo_redo, params: Dictionary) -> Array:
 	return ["", {"path": TreeEngineScript.path_of(root, node), "parent": parent_path}]
 
 
+## Attach an existing script (res:// path) to the node at `path`. Validates that
+## the script loads and that its base type is compatible with the node. Undoable
+## and marks the scene unsaved when run on the live edited scene.
+static func attach_script(root: Node, undo_redo, params: Dictionary) -> Array:
+	var path := str(params.get("path", "/"))
+	var node: Node = TreeEngineScript.resolve(root, path)
+	if node == null:
+		return ["node not found: %s" % path, null]
+	var script_path := str(params.get("script", ""))
+	if script_path.is_empty():
+		return ["script (res:// path) is required", null]
+	if not ResourceLoader.exists(script_path):
+		return ["script not found: %s" % script_path, null]
+	var script: Variant = load(script_path)
+	if script == null or not script is Script:
+		return ["could not load script: %s" % script_path, null]
+	var base_type := str((script as Script).get_instance_base_type())
+	if not base_type.is_empty() and not ClassDB.is_parent_class(node.get_class(), base_type):
+		return ["script base type %s is not compatible with node type %s" % [base_type, node.get_class()], null]
+	var old_script: Variant = node.get_script()
+	var ur := _undo_redo(undo_redo)
+	_create_action(ur, "Attach script to %s" % node.name)
+	ur.add_do_property(node, "script", script)
+	ur.add_undo_property(node, "script", old_script)
+	ur.commit_action()
+	return ["", {
+		"path": TreeEngineScript.path_of(root, node),
+		"script": script_path,
+		"previous": (old_script as Script).resource_path if old_script != null else null,
+	}]
+
+
 ## Build a complete scene tree in-memory from a declarative nested spec and save
 ## it to `save_path` as a .tscn. Detached from the currently edited scene: it
 ## does not use undo/redo and is not made the editor's active scene (no new-scene
