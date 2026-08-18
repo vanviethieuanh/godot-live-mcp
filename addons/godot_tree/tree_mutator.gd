@@ -158,13 +158,9 @@ static func create_scene(params: Dictionary) -> Array:
 		var build_err := _build_children(root, children as Array, root, count_holder)
 		if not build_err.is_empty():
 			return [build_err, null]
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(root)
-	if pack_err != OK:
-		return ["failed to pack scene (%s)" % error_string(pack_err), null]
-	var save_err := ResourceSaver.save(packed, save_path)
-	if save_err != OK:
-		return ["failed to save scene to %s (%s)" % [save_path, error_string(save_err)], null]
+	var save_err := save_scene(root, save_path)
+	if not save_err.is_empty():
+		return [save_err, null]
 	return ["", {
 		"save_path": save_path,
 		"root": root_type,
@@ -172,6 +168,52 @@ static func create_scene(params: Dictionary) -> Array:
 		"node_count": count_holder[0],
 		"tree": TreeEngineScript.tree(root, root, 32, 0),
 	}]
+
+
+## Pack `root` into a PackedScene and save it to `save_path` (.tscn). Returns an
+## empty string on success or an error message otherwise. Shared by create_scene
+## and the headless scene editor so both write scenes through the same path.
+static func save_scene(root: Node, save_path: String) -> String:
+	var packed := PackedScene.new()
+	var pack_err := packed.pack(root)
+	if pack_err != OK:
+		return "failed to pack scene (%s)" % error_string(pack_err)
+	var save_err := ResourceSaver.save(packed, save_path)
+	if save_err != OK:
+		return "failed to save scene to %s (%s)" % [save_path, error_string(save_err)]
+	_preserve_uid(save_path)
+	return ""
+
+
+## ResourceSaver.save re-packs a fresh PackedScene, which drops the resource UID
+## from the `.tscn` header (the new resource has no UID). If the scene's path
+## already has a UID (registered in the project's UID cache, e.g. by a prior
+## editor scan), re-insert it into the `gd_scene` header so the editor's next
+## filesystem scan re-registers it and `uid://` references keep resolving.
+static func _preserve_uid(save_path: String) -> void:
+	if not save_path.ends_with(".tscn"):
+		return
+	var uid_id := ResourceLoader.get_resource_uid(save_path)
+	if uid_id == ResourceUID.INVALID_ID:
+		return
+	var f := FileAccess.open(save_path, FileAccess.READ)
+	if f == null:
+		return
+	var text := f.get_as_text()
+	f.close()
+	var nl := text.find("\n")
+	var first_line := text.substr(0, nl) if nl >= 0 else text
+	if first_line.contains("uid="):
+		return
+	var bracket := first_line.rfind("]")
+	if bracket <= 0:
+		return
+	var uid_text := ResourceUID.id_to_text(uid_id)
+	var new_first := first_line.substr(0, bracket) + " uid=\"%s\"" % uid_text + first_line.substr(bracket)
+	f = FileAccess.open(save_path, FileAccess.WRITE)
+	var rest := text.substr(first_line.length()) if nl >= 0 else ""
+	f.store_string(new_first + rest)
+	f.close()
 
 
 static func _build_children(parent: Node, specs: Array, root: Node, count_holder: Array) -> String:

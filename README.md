@@ -14,20 +14,41 @@ flowchart LR
         plugin["godot_tree_plugin.gd"]
         server["tree_server.gd<br/>loopback TCP host + dispatch"]
         engine["tree_engine.gd<br/>query core"]
+        mutator["tree_mutator.gd<br/>mutation core (undo-aware)"]
         dock["tree_dock.gd<br/>status dock"]
         plugin --> server
         server --> engine
+        server --> mutator
         plugin --> dock
     end
 
+    subgraph MCP["godot-live-mcp (mcp/)<br/>MCP stdio server"]
+        mcp["server.py<br/>tools + routing"]
+        client["tree_client.py<br/>TCP NDJSON"]
+        headless["tree_headless.gd<br/>spawned via subprocess"]
+    end
+
     agent["agent / CLI"]
-    mcp["godot-live-mcp (mcp/)<br/>MCP stdio server"]
     bridge["TCP NDJSON<br/>127.0.0.1:41234"]
 
     agent -- "MCP stdio" --> mcp
-    mcp -- "loopback TCP" --> bridge
+    mcp -- "scene == active / no scene" --> client
+    mcp -- "scene in open tab (auto-focus)" --> client
+    mcp -- "scene not open (headless)" --> headless
+    client -- "loopback TCP" --> bridge
     bridge --> server
 ```
+
+The MCP server **routes each op in the Python layer**: with no `scene` arg, or
+when the `scene` equals the currently-edited scene, it talks to the live bridge
+(`tree_client.py` → `tree_server.gd`), so edits are undoable in the editor. If
+the `scene` is open in **another tab**, the server auto-focuses that tab
+(`open_scene_from_path`), runs the op on the live in-memory copy, then restores
+your previous active scene — so open-tab edits never touch the on-disk file and
+never trigger a reload prompt. Only a scene that is **not open at all** is edited
+by a headless `godot` subprocess (`tree_headless.gd`) that loads the `.tscn`
+from disk, runs the same `tree_mutator.gd`/`tree_engine.gd` core, and saves it
+back.
 
 ## OpenCode (primary)
 
@@ -63,16 +84,17 @@ flowchart LR
 | `godot-live_tree_ping` | – | Bridge + scene health check |
 | `godot-live_tree_editor` | – | Engine/project info: Godot version, project name, project path, current scene |
 | `godot-live_tree_scene` | – | Current scene: root name/type, node count, unsaved-modified flag |
-| `godot-live_tree_query` | `path` | Summary of one node |
-| `godot-live_tree_children` | `path` | Direct children of a node |
-| `godot-live_tree_props` | `path` | Exported (editor-visible) properties |
-| `godot-live_tree_find` | `path? type? name? script? has_prop? path_pattern?` | Filtered search (`name`/`script` accept globs; `path_pattern` matches absolute paths segment-wise, e.g. `/A/*/C`) |
-| `godot-live_tree_inspect` | `path` | Semantic output via `agent_inspect()` |
-| `godot-live_tree_dump` | `path? depth?` | Nested tree dump (depth 0 = node only, default 2) |
-| `godot-live_tree_set` | `path property value` | Set a property (undoable, marks scene unsaved) |
-| `godot-live_tree_add` | `parent_path node_type node_name properties?` | Add a node (undoable, marks scene unsaved) |
-| `godot-live_tree_remove` | `path` | Remove a node (undoable, marks scene unsaved) |
-| `godot-live_tree_move` | `path parent_path index?` | Reparent/reorder a node (undoable, marks scene unsaved) |
+| `godot-live_tree_open_scenes` | – | Scenes currently open in the editor: `{"paths": [...], "scenes": {path: {name, node_count}}}` |
+| `godot-live_tree_query` | `path scene?` | Summary of one node |
+| `godot-live_tree_children` | `path scene?` | Direct children of a node |
+| `godot-live_tree_props` | `path scene?` | Exported (editor-visible) properties |
+| `godot-live_tree_find` | `path? type? name? script? has_prop? path_pattern? scene?` | Filtered search (`name`/`script` accept globs; `path_pattern` matches absolute paths segment-wise, e.g. `/A/*/C`) |
+| `godot-live_tree_inspect` | `path scene?` | Semantic output via `agent_inspect()` |
+| `godot-live_tree_dump` | `path? depth? scene?` | Nested tree dump (depth 0 = node only, default 2) |
+| `godot-live_tree_set` | `path property value scene?` | Set a property (undoable, marks scene unsaved) |
+| `godot-live_tree_add` | `parent_path node_type node_name properties? scene?` | Add a node (undoable, marks scene unsaved) |
+| `godot-live_tree_remove` | `path scene?` | Remove a node (undoable, marks scene unsaved) |
+| `godot-live_tree_move` | `path parent_path index? scene?` | Reparent/reorder a node (undoable, marks scene unsaved) |
 | `godot-live_create_scene` | `root_type root_name save_path children?` | Build a whole scene in-memory from a declarative nested spec and save it to a `.tscn`; detached (no new-scene editor entry), returns the serialized tree |
 | `godot-live_log_read` | `since? limit?` | Delta-read captured `print`/`push_error`/`push_warning` output (Godot >= 4.5; see below) |
 | `godot-live_log_probe` | `message? level?` | Emit a std output/error log from the editor process to test `log_read` capture |
@@ -95,6 +117,35 @@ with File > Open. `children` is a nested list of
 `{"node_type", "node_name", "properties"?, "children"?}` dicts; properties use
 the same values as `tree_set`.
 
+### Editing scenes that aren't open
+
+Every read/mutation tool takes an optional `scene` (a `res://` path). Routing
+happens in the MCP server (Python layer):
+
+- **No `scene` given** → operate on the live edited scene through the bridge
+  (legacy behavior; undoable).
+- **`scene` given and it equals the currently edited scene** → live bridge.
+- **`scene` given and it is open in another tab** → the server **auto-focuses**
+  that tab (`open_scene_from_path`), runs the op on the editor's live in-memory
+  copy (undoable, no on-disk write), then **restores your previous active
+  scene**. This applies to both reads and writes, so they always reflect the
+  live in-memory truth and never trigger a reload prompt.
+- **`scene` given and it is *not* open at all** → a **headless**
+  `godot --headless` subprocess loads the `.tscn` from disk, runs the same
+  `TreeMutator`/`TreeEngine` core (`addons/godot_tree/tree_headless.gd`),
+  re-packs and saves it via `ResourceSaver`, and returns the serialized tree.
+  These edits are **not undoable** (there is no editor undo stack for a scene
+  that isn't being edited), and they write the file to disk immediately.
+
+This lets an agent read or modify **multiple scenes** without opening them one at
+a time, while keeping the currently-edited scene fully undoable.
+
+> **Import cache (open for development).** Headless edits rely on the project's
+> existing `.godot` import cache (so they work fine when the editor has already
+> imported the project). v2 plans to rescan/import resources automatically before
+> a headless edit when the cache is missing or stale (e.g. `godot --headless
+> --import`), driven from the Python layer.
+
 > **Project settings are read-only for now.** `project_get_setting` can *read*
 > any setting, but writing settings (`project_set_setting`) is intentionally
 > **not implemented**: mutating `project.godot` is easy to get wrong and can
@@ -103,7 +154,9 @@ the same values as `tree_set`.
 
 Env vars (optional): `GODOT_TREE_HOST` (default `127.0.0.1`),
 `GODOT_TREE_PORT` (default `41234`, must match the addon's Editor Setting),
-`GODOT_TREE_TIMEOUT_MS` (default `5000`).
+`GODOT_TREE_TIMEOUT_MS` (default `5000`), `GODOT_BIN` (godot binary for headless
+edits; defaults to `godot` on `PATH`), `GODOT_PROJECT` (project dir for headless
+edits; defaults to the live editor's project path, then the working directory).
 
 Published install (once published to PyPI): `"command": ["uvx", "godot-live-mcp"]`.
 Claude Code (future): same stdio server, `claude mcp add godot-live -- uvx godot-live-mcp`.
@@ -136,6 +189,16 @@ godot --headless -s addons/godot_tree/tree_cli.gd -- update_project_uids --dry-r
 godot --headless -s addons/godot_tree/tree_cli.gd -- update_project_uids
 ```
 
+`tree_cli.gd` talks to the running editor's bridge. To read/edit a scene **on
+disk** without the editor (what the MCP uses for non-open scenes), run
+`tree_headless.gd` directly:
+
+```sh
+godot --headless --path <project> -s addons/godot_tree/tree_headless.gd -- res://scenes/level_cave.tscn query --args '{"path": "/Walls"}'
+godot --headless --path <project> -s addons/godot_tree/tree_headless.gd -- res://scenes/level_cave.tscn add  --args '{"parent_path": "/Enemies", "node_type": "Node2D", "node_name": "Boss"}'
+godot --headless --path <project> -s addons/godot_tree/tree_headless.gd -- res://scenes/level_cave.tscn set  --args '{"path": "/Enemies", "property": "position", "value": [5, 7]}'
+```
+
 Port override: Editor Settings → `addons/godot_tree/port`, or restart the
 bridge from the dock ("Port..." button). Nodes that implement
 `agent_inspect() -> Dictionary` get semantic output via the `inspect` op.
@@ -145,6 +208,7 @@ bridge from the dock ("Port..." button). Nodes that implement
 ```sh
 godot --headless -s tests/tree_engine_test.gd   # query core (GDScript)
 godot --headless -s tests/tree_mutator_test.gd  # mutation core: set/add/remove/move (GDScript)
+godot --headless -s tests/tree_headless_test.gd # headless load/mutate/save core (GDScript)
 godot --headless -s tests/tree_server_test.gd   # TCP round trip + lifecycle (GDScript)
 godot --headless -s tests/tree_dock_test.gd     # dock status smoke test (GDScript)
 uv run --directory mcp pytest                   # MCP server (Python, fake TCP)
@@ -206,9 +270,13 @@ Newline-delimited JSON over TCP. Request:
 
 Response: `{"id": 1, "ok": true, "result": {...}}` or `{"id": 1, "ok": false, "error": "..."}`.
 
-Ops: `ping`, `scene`, `editor`, `tree`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`, `get_uid`, `update_project_uids`.
+Ops: `ping`, `scene`, `editor`, `open_scenes`, `focus_scene`, `tree`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`, `get_uid`, `update_project_uids`.
 
 ## Next steps
 
 - Script attachment (`attach_script`) and set-main-scene.
 - Scene save/load ops (`save_scene`) to persist mutations to disk.
+- **v2 import rescan (open for development):** before a headless edit, check the
+  project's `.godot` import cache; when missing or stale (a source resource is
+  newer than the cache), run `godot --headless --import` first, driven from the
+  Python layer with a per-project cache flag.

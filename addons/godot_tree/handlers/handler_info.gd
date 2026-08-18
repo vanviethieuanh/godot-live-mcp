@@ -8,7 +8,7 @@ const TreeEngineScript := preload("res://addons/godot_tree/tree_engine.gd")
 
 
 static func op_names() -> Array[String]:
-	return ["ping", "scene", "editor"]
+	return ["ping", "scene", "editor", "open_scenes", "focus_scene"]
 
 
 static func handle(server, op: String, args: Dictionary) -> Array:
@@ -20,7 +20,41 @@ static func handle(server, op: String, args: Dictionary) -> Array:
 			return ["", _scene_info(server, root)]
 		"editor":
 			return ["", _editor_info(root)]
+		"open_scenes":
+			return ["", _open_scenes()]
+		"focus_scene":
+			return ["", _focus_scene(str(args.get("path", "")))]
 	return ["unknown op: %s" % op, null]
+
+
+## Make the scene at `path` the edited scene so the bridge operates on it (its
+## in-memory copy becomes the source of truth). Editor-only; no-op headless.
+static func _focus_scene(path: String) -> Dictionary:
+	if path.is_empty() or not Engine.is_editor_hint():
+		return {"scene": path, "focused": false}
+	EditorInterface.open_scene_from_path(path)
+	return {"scene": path, "focused": true}
+
+
+## List every scene currently open in the editor as a path -> summary map, plus
+## the raw paths. Only meaningful in the editor (EditorInterface is unavailable
+## headless); degrades to an empty list otherwise.
+static func _open_scenes() -> Dictionary:
+	if not Engine.is_editor_hint():
+		return {"paths": [], "scenes": {}}
+	var paths: PackedStringArray = EditorInterface.get_open_scenes()
+	var roots: Array = EditorInterface.get_open_scene_roots()
+	var scenes: Dictionary = {}
+	for i in paths.size():
+		var root: Node = roots[i] if i < roots.size() else null
+		var summary := {"name": "", "node_count": 0}
+		if root != null:
+			summary = {
+				"name": str(root.name),
+				"node_count": TreeEngineScript.node_count(root),
+			}
+		scenes[paths[i]] = summary
+	return {"paths": paths, "scenes": scenes}
 
 
 static func _scene_info(server, root: Node) -> Dictionary:

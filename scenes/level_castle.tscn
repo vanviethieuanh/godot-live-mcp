@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://c1upu0nihnlqn"]
+
+[node name="Level" type="Node2D" unique_id=1806174622]
+
+[node name="Banner" type="Sprite2D" parent="." unique_id=1954918914]
+position = Vector2(0, -200)

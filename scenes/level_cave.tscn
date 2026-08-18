@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://j6vh2l40iagi"]
+
+[node name="Level" type="Node2D" unique_id=1780160956]
+
+[node name="Walls" type="TileMap" parent="." unique_id=2030557624]
+format = 2
+
+[node name="Enemies" type="Node2D" parent="." unique_id=757276434]

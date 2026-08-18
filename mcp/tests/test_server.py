@@ -6,12 +6,14 @@ protocol, without needing the Godot editor.
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import pytest
 from mcp import Client
 
-from godot_live_mcp import tree_client
+from godot_live_mcp import server, tree_client
 from godot_live_mcp.server import mcp
 
 
@@ -419,6 +421,163 @@ async def test_project_get_setting_exact(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.anyio
+async def test_tree_open_scenes(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"paths": ["res://a.tscn"], "scenes": {"res://a.tscn": {"name": "A", "node_count": 1}}}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_open_scenes", {})
+    assert captured["op"] == "open_scenes"
+    assert result.structured_content["paths"] == ["res://a.tscn"]
+
+
+@pytest.mark.anyio
+async def test_scene_equal_to_active_uses_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[tuple[str, dict[str, Any] | None]] = []
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured.append((op, args))
+        if op == "ping":
+            return {"pong": True, "scene": {"scene_file_path": "res://level_cave.tscn"}}
+        if op == "open_scenes":
+            return {"paths": ["res://level_cave.tscn"], "scenes": {}}
+        return {"name": "Walls"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_query", {"path": "/Walls", "scene": "res://level_cave.tscn"})
+    assert captured[-1] == ("query", {"path": "/Walls"})
+    assert result.structured_content == {"name": "Walls"}
+
+
+@pytest.mark.anyio
+async def test_scene_open_but_inactive_focuses_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, Any] | None]] = []
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        calls.append((op, args))
+        if op == "ping":
+            return {"pong": True, "scene": {"scene_file_path": "res://active.tscn"}}
+        if op == "open_scenes":
+            return {"paths": ["res://active.tscn", "res://level_cave.tscn"], "scenes": {}}
+        if op == "focus_scene":
+            return {"scene": (args or {}).get("path"), "focused": True}
+        return {"name": "Walls", "property": "position", "value": "(1, 2)"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_set", {"path": "/Walls", "property": "position", "value": [1, 2], "scene": "res://level_cave.tscn"})
+
+    # focus target -> op -> restore previous (calls[0]=ping, calls[1]=open_scenes)
+    assert calls[2] == ("focus_scene", {"path": "res://level_cave.tscn"})
+    assert calls[3] == ("set", {"path": "/Walls", "property": "position", "value": [1, 2]})
+    assert calls[4] == ("focus_scene", {"path": "res://active.tscn"})
+    assert result.structured_content == {"name": "Walls", "property": "position", "value": "(1, 2)"}
+
+
+@pytest.mark.anyio
+async def test_scene_open_but_inactive_restores_focus_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, Any] | None]] = []
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        calls.append((op, args))
+        if op == "ping":
+            return {"pong": True, "scene": {"scene_file_path": "res://active.tscn"}}
+        if op == "open_scenes":
+            return {"paths": ["res://active.tscn", "res://level_cave.tscn"], "scenes": {}}
+        if op == "focus_scene":
+            return {"scene": (args or {}).get("path"), "focused": True}
+        raise tree_client.BridgeError("node not found")
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_remove", {"path": "/Walls", "scene": "res://level_cave.tscn"})
+    assert result.is_error
+    # even on error, focus is restored
+    assert calls[-1] == ("focus_scene", {"path": "res://active.tscn"})
+
+
+@pytest.mark.anyio
+async def test_scene_not_open_routes_headless(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_request(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        if op == "ping":
+            return {"pong": True, "scene": {"scene_file_path": "res://active.tscn"}}
+        if op == "open_scenes":
+            return {"paths": ["res://active.tscn"], "scenes": {}}
+        return None
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        calls.append(cmd)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"id": 1, "ok": True, "result": {"name": "Walls", "saved": "res://level_cave.tscn"}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(tree_client, "request", fake_request)
+    monkeypatch.setattr(server.subprocess, "run", fake_run)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_set", {"path": "/Walls", "property": "position", "value": [1, 2], "scene": "res://level_cave.tscn"})
+
+    assert len(calls) == 1
+    cmd = calls[0]
+    assert cmd[0].endswith("godot")
+    assert "--headless" in cmd
+    assert cmd[-4] == "res://level_cave.tscn"
+    assert cmd[-3] == "set"
+    assert cmd[-2] == "--args"
+    assert json.loads(cmd[-1]) == {"path": "/Walls", "property": "position", "value": [1, 2]}
+    assert result.structured_content["saved"] == "res://level_cave.tscn"
+
+
+@pytest.mark.anyio
+async def test_editor_unreachable_routes_headless(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise tree_client.BridgeUnreachable("down")
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"id": 1, "ok": True, "result": {"removed": True}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(tree_client, "request", boom)
+    monkeypatch.setattr(server.subprocess, "run", fake_run)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_remove", {"path": "/Walls", "scene": "res://level_cave.tscn"})
+    assert result.structured_content == {"removed": True}
+
+
+@pytest.mark.anyio
+async def test_headless_error_surfaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise tree_client.BridgeUnreachable("down")
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        return SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps({"id": 1, "ok": False, "error": "cannot load scene: res://x.tscn"}),
+            stderr="boom detail",
+        )
+
+    monkeypatch.setattr(tree_client, "request", boom)
+    monkeypatch.setattr(server.subprocess, "run", fake_run)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_set", {"path": "/", "property": "x", "value": 1, "scene": "res://x.tscn"})
+    assert result.is_error
+    text = "".join(part.text for part in result.content if part.type == "text")
+    assert "cannot load scene" in text
+
+
+@pytest.mark.anyio
 async def test_tools_are_listed() -> None:
     async with Client(mcp) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
@@ -442,4 +601,5 @@ async def test_tools_are_listed() -> None:
         "get_uid",
         "update_project_uids",
         "project_get_setting",
+        "tree_open_scenes",
     }

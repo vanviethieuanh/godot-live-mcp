@@ -6,6 +6,10 @@ loopback TCP bridge served by the Godot editor plugin.
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import subprocess
 from typing import Any
 
 from mcp.server import MCPServer
@@ -14,12 +18,109 @@ from . import tree_client
 
 mcp = MCPServer("godot-live")
 
+_HEADLESS_SCRIPT = "res://addons/godot_tree/tree_headless.gd"
+
 
 def _bridge(op: str, args: dict[str, Any] | None = None) -> Any:
     try:
         return tree_client.request(op, args)
     except tree_client.BridgeError as exc:
         raise RuntimeError(str(exc)) from exc
+
+
+def _godot_binary() -> str:
+    return os.environ.get("GODOT_BIN") or shutil.which("godot") or "godot"
+
+
+def _project_dir() -> str:
+    env = os.environ.get("GODOT_PROJECT")
+    if env:
+        return env
+    try:
+        info = _bridge("editor")
+        path = (info or {}).get("project_path")
+        if path:
+            return str(path)
+    except RuntimeError:
+        pass
+    return os.getcwd()
+
+
+## Probe the live editor for its active scene path and the set of open scene
+## tabs. Returns None when the editor bridge is unreachable.
+def _editor_probe() -> dict[str, Any] | None:
+    try:
+        info = tree_client.request("ping")
+    except tree_client.BridgeError:
+        return None
+    scene = info.get("scene") or {}
+    active = scene.get("scene_file_path") or ""
+    open_paths: list[str] = []
+    try:
+        opens = tree_client.request("open_scenes")
+        if isinstance(opens, dict):
+            open_paths = list(opens.get("paths") or [])
+    except tree_client.BridgeError:
+        pass
+    return {"active": str(active), "open_paths": open_paths}
+
+
+def _headless(op: str, scene_path: str, args: dict[str, Any]) -> Any:
+    cmd = [
+        _godot_binary(),
+        "--headless",
+        "--path",
+        _project_dir(),
+        "-s",
+        _HEADLESS_SCRIPT,
+        "--",
+        scene_path,
+        op,
+        "--args",
+        json.dumps(args),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"headless godot timed out editing {scene_path}") from exc
+    lines = proc.stdout.strip().splitlines()
+    resp: Any = None
+    if lines:
+        try:
+            resp = json.loads(lines[-1])
+        except ValueError:
+            resp = None
+    if isinstance(resp, dict) and resp.get("ok"):
+        return resp.get("result")
+    error = str(resp.get("error")) if isinstance(resp, dict) else "headless godot produced no result"
+    detail = proc.stderr.strip()
+    raise RuntimeError(f"{error}" + (f": {detail}" if detail else ""))
+
+
+## Route an op against an optionally-targeted scene. With no `scene`, operate on
+## the currently edited scene through the live bridge (legacy behavior). When a
+## scene is given: if it is the live active scene, use the bridge; if it is open
+## in another tab, focus that tab and use the bridge (so edits use the in-memory
+## copy and are undoable, avoiding a stale on-disk file); otherwise edit it on
+## disk via a headless subprocess. Focus is restored to the previous scene after
+## the op.
+def _route(scene: str, op: str, args: dict[str, Any]) -> Any:
+    if not scene:
+        return _bridge(op, args)
+    probe = _editor_probe()
+    if probe is None:
+        return _headless(op, scene, args)
+    if scene == probe["active"]:
+        return _bridge(op, args)
+    if scene in probe["open_paths"]:
+        prev = probe["active"]
+        _bridge("focus_scene", {"path": scene})
+        try:
+            return _bridge(op, args)
+        finally:
+            if prev:
+                _bridge("focus_scene", {"path": prev})
+    return _headless(op, scene, args)
 
 
 @mcp.tool()
@@ -55,27 +156,33 @@ def log_probe(message: str = "probe", level: str = "info") -> dict[str, Any]:
 
 
 @mcp.tool()
-def tree_dump(path: str = "/", depth: int = 2) -> dict[str, Any]:
-    """Return a nested dump of the scene tree under `path`, up to `depth` levels deep (0 = node only)."""
-    return _bridge("tree", {"path": path, "depth": depth})
+def tree_dump(path: str = "/", depth: int = 2, scene: str = "") -> dict[str, Any]:
+    """Return a nested dump of the scene tree under `path`, up to `depth` levels deep (0 = node only). If `scene` (res:// path) is given and it is not the scene currently being edited, the scene is read on disk headlessly."""
+    return _route(scene, "tree", {"path": path, "depth": depth})
 
 
 @mcp.tool()
-def tree_query(path: str = "/") -> dict[str, Any]:
-    """Return a summary of the node at `path` (e.g. /City/Chapel). "/" is the scene root."""
-    return _bridge("query", {"path": path})
+def tree_query(path: str = "/", scene: str = "") -> dict[str, Any]:
+    """Return a summary of the node at `path` (e.g. /City/Chapel). "/" is the scene root. If `scene` (res:// path) is given and it is not the scene currently being edited, the scene is read on disk headlessly."""
+    return _route(scene, "query", {"path": path})
 
 
 @mcp.tool()
-def tree_children(path: str = "/") -> list[dict[str, Any]]:
-    """Return summaries of the direct children of the node at `path`."""
-    return _bridge("children", {"path": path})
+def tree_children(path: str = "/", scene: str = "") -> list[dict[str, Any]]:
+    """Return summaries of the direct children of the node at `path`. If `scene` (res:// path) is given and it is not the scene currently being edited, the scene is read on disk headlessly."""
+    return _route(scene, "children", {"path": path})
 
 
 @mcp.tool()
-def tree_props(path: str = "/") -> dict[str, Any]:
-    """Return the exported (editor-visible) properties of the node at `path`."""
-    return _bridge("props", {"path": path})
+def tree_props(path: str = "/", scene: str = "") -> dict[str, Any]:
+    """Return the exported (editor-visible) properties of the node at `path`. If `scene` (res:// path) is given and it is not the scene currently being edited, the scene is read on disk headlessly."""
+    return _route(scene, "props", {"path": path})
+
+
+@mcp.tool()
+def tree_open_scenes() -> dict[str, Any]:
+    """Return the scenes currently open in the editor as `{"paths": [...], "scenes": {path: {name, node_count}}}`. Helps route edits to the live bridge vs. headless. Requires a running editor; returns empty lists if unavailable."""
+    return _bridge("open_scenes")
 
 
 @mcp.tool()
@@ -86,8 +193,9 @@ def tree_find(
     script: str | None = None,
     has_prop: str | None = None,
     path_pattern: str | None = None,
+    scene: str = "",
 ) -> list[dict[str, Any]]:
-    """Find nodes under `path` matching the given filters. `name`, `script`, and `path_pattern` accept glob patterns; `path_pattern` matches absolute paths segment-wise (e.g. /A/*/C)."""
+    """Find nodes under `path` matching the given filters. `name`, `script`, and `path_pattern` accept glob patterns; `path_pattern` matches absolute paths segment-wise (e.g. /A/*/C). If `scene` (res:// path) is given and it is not the scene currently being edited, the scene is read on disk headlessly."""
     args: dict[str, Any] = {"path": path}
     if type is not None:
         args["type"] = type
@@ -99,22 +207,22 @@ def tree_find(
         args["has_prop"] = has_prop
     if path_pattern is not None:
         args["path_pattern"] = path_pattern
-    return _bridge("find", args)
+    return _route(scene, "find", args)
 
 
 @mcp.tool()
-def tree_inspect(path: str = "/") -> dict[str, Any]:
-    """Return semantic output for the node at `path` if it implements `agent_inspect()`, else `{"agent_inspect": false}`."""
-    result = _bridge("inspect", {"path": path})
+def tree_inspect(path: str = "/", scene: str = "") -> dict[str, Any]:
+    """Return semantic output for the node at `path` if it implements `agent_inspect()`, else `{"agent_inspect": false}`. If `scene` (res:// path) is given and it is not the scene currently being edited, the scene is read on disk headlessly."""
+    result = _route(scene, "inspect", {"path": path})
     if result is None:
         return {"agent_inspect": False}
     return result
 
 
 @mcp.tool()
-def tree_set(path: str, property: str, value: Any = None) -> dict[str, Any]:
-    """Set `property` on the node at `path`. Undoable and marks the scene unsaved. `value` accepts scalars, arrays for vectors/colors, or res:// paths for resources."""
-    return _bridge("set", {"path": path, "property": property, "value": value})
+def tree_set(path: str, property: str, value: Any = None, scene: str = "") -> dict[str, Any]:
+    """Set `property` on the node at `path`. Undoable and marks the scene unsaved when run on the live edited scene. `value` accepts scalars, arrays for vectors/colors, or res:// paths for resources. If `scene` (res:// path) is given and it is not the scene currently being edited, the change is applied and saved on disk headlessly (not undoable)."""
+    return _route(scene, "set", {"path": path, "property": property, "value": value})
 
 
 @mcp.tool()
@@ -123,18 +231,19 @@ def tree_add(
     node_type: str = "",
     node_name: str = "",
     properties: dict[str, Any] | None = None,
+    scene: str = "",
 ) -> dict[str, Any]:
-    """Add a node of `node_type` named `node_name` under `parent_path`, optionally applying `properties`. Undoable and marks the scene unsaved."""
+    """Add a node of `node_type` named `node_name` under `parent_path`, optionally applying `properties`. Undoable and marks the scene unsaved when run on the live edited scene. If `scene` (res:// path) is given and it is not the scene currently being edited, the change is applied and saved on disk headlessly (not undoable)."""
     args: dict[str, Any] = {"parent_path": parent_path, "node_type": node_type, "node_name": node_name}
     if properties:
         args["properties"] = properties
-    return _bridge("add", args)
+    return _route(scene, "add", args)
 
 
 @mcp.tool()
-def tree_remove(path: str) -> dict[str, Any]:
-    """Remove the node at `path`. Undoable and marks the scene unsaved."""
-    return _bridge("remove", {"path": path})
+def tree_remove(path: str, scene: str = "") -> dict[str, Any]:
+    """Remove the node at `path`. Undoable and marks the scene unsaved when run on the live edited scene. If `scene` (res:// path) is given and it is not the scene currently being edited, the change is applied and saved on disk headlessly (not undoable)."""
+    return _route(scene, "remove", {"path": path})
 
 
 @mcp.tool()
@@ -152,12 +261,12 @@ def create_scene(
 
 
 @mcp.tool()
-def tree_move(path: str, parent_path: str = "/", index: int | None = None) -> dict[str, Any]:
-    """Reparent the node at `path` under `parent_path`, optionally at child `index`. Undoable and marks the scene unsaved."""
+def tree_move(path: str, parent_path: str = "/", index: int | None = None, scene: str = "") -> dict[str, Any]:
+    """Reparent the node at `path` under `parent_path`, optionally at child `index`. Undoable and marks the scene unsaved when run on the live edited scene. If `scene` (res:// path) is given and it is not the scene currently being edited, the change is applied and saved on disk headlessly (not undoable)."""
     args: dict[str, Any] = {"path": path, "parent_path": parent_path}
     if index is not None:
         args["index"] = index
-    return _bridge("move", args)
+    return _route(scene, "move", args)
 
 
 @mcp.tool()

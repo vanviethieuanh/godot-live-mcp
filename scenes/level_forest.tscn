@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://ddj5rldkse0v3"]
+
+[node name="Level" type="Node2D" unique_id=209740942]
+
+[node name="Ground" type="Sprite2D" parent="." unique_id=960815388]
+position = Vector2(0, 300)
+
+[node name="Props" type="Node2D" parent="." unique_id=1694355029]
