@@ -61,12 +61,14 @@ flowchart LR
 | Tool | Args | Description |
 |------|------|-------------|
 | `godot-live_tree_ping` | – | Bridge + scene health check |
-| `godot-live_tree_scene` | – | Currently edited scene info |
+| `godot-live_tree_editor` | – | Engine/project info: Godot version, project name, project path, current scene |
+| `godot-live_tree_scene` | – | Current scene: root name/type, node count, unsaved-modified flag |
 | `godot-live_tree_query` | `path` | Summary of one node |
 | `godot-live_tree_children` | `path` | Direct children of a node |
 | `godot-live_tree_props` | `path` | Exported (editor-visible) properties |
-| `godot-live_tree_find` | `path? type? name? script? has_prop?` | Filtered search (`name`/`script` accept globs) |
+| `godot-live_tree_find` | `path? type? name? script? has_prop? path_pattern?` | Filtered search (`name`/`script` accept globs; `path_pattern` matches absolute paths segment-wise, e.g. `/A/*/C`) |
 | `godot-live_tree_inspect` | `path` | Semantic output via `agent_inspect()` |
+| `godot-live_tree_dump` | `path? depth?` | Nested tree dump (depth 0 = node only, default 2) |
 | `godot-live_tree_set` | `path property value` | Set a property (undoable, marks scene unsaved) |
 | `godot-live_tree_add` | `parent_path node_type node_name properties?` | Add a node (undoable, marks scene unsaved) |
 | `godot-live_tree_remove` | `path` | Remove a node (undoable, marks scene unsaved) |
@@ -94,10 +96,13 @@ Open this project in the Godot editor (plugin auto-starts the bridge on
 ```sh
 godot --headless -s addons/godot_tree/tree_cli.gd -- ping
 godot --headless -s addons/godot_tree/tree_cli.gd -- scene
+godot --headless -s addons/godot_tree/tree_cli.gd -- editor
+godot --headless -s addons/godot_tree/tree_cli.gd -- tree /City 2
 godot --headless -s addons/godot_tree/tree_cli.gd -- children /City
 godot --headless -s addons/godot_tree/tree_cli.gd -- query /City/Chapel 8
 godot --headless -s addons/godot_tree/tree_cli.gd -- find --type Node2D
 godot --headless -s addons/godot_tree/tree_cli.gd -- find --name "Office*"
+godot --headless -s addons/godot_tree/tree_cli.gd -- find --path-pattern '/*/Plaza/*'
 godot --headless -s addons/godot_tree/tree_cli.gd -- props /City/Office 0
 godot --headless -s addons/godot_tree/tree_cli.gd -- inspect /City/Chapel 8
 godot --headless -s addons/godot_tree/tree_cli.gd -- set /City/Office visible --value false
@@ -120,6 +125,18 @@ godot --headless -s tests/tree_dock_test.gd     # dock status smoke test (GDScri
 uv run --directory mcp pytest                   # MCP server (Python, fake TCP)
 ```
 
+## Version support
+
+Godot **4.x** (tested on 4.7.1). The TCP bridge and mutations are
+version-agnostic: the undo API differences across 4.0–4.7 (`UndoRedo` vs
+`EditorUndoRedoManager`, Callable vs `(object, method, ...)` signatures) are
+detected at runtime, so no version-specific class names are referenced.
+
+The editor **dock** uses `EditorDock`, which only exists in Godot **4.5+**; on
+earlier versions the plugin falls back to **bridge-only** (the dock is skipped,
+everything else — TCP bridge, CLI, MCP tools — still works). The plugin is
+developed against `config/features=PackedStringArray("4.7")`.
+
 ## Protocol
 
 Newline-delimited JSON over TCP. Request:
@@ -130,7 +147,7 @@ Newline-delimited JSON over TCP. Request:
 
 Response: `{"id": 1, "ok": true, "result": {...}}` or `{"id": 1, "ok": false, "error": "..."}`.
 
-Ops: `ping`, `scene`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`.
+Ops: `ping`, `scene`, `editor`, `tree`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`.
 
 ## Next steps
 

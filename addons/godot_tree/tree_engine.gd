@@ -4,7 +4,7 @@ extends RefCounted
 ## Read-only scene tree query core. Editor-independent: every function takes a
 ## Node root, so the dock, the TCP bridge and headless tests share one engine.
 
-const FILTER_KEYS: Array[String] = ["type", "name", "script", "has_prop"]
+const FILTER_KEYS: Array[String] = ["type", "name", "script", "has_prop", "path_pattern"]
 
 
 static func node_summary(node: Node, root: Node) -> Dictionary:
@@ -43,20 +43,20 @@ static func props(node: Node) -> Dictionary:
 	return out
 
 
-static func find_nodes(root: Node, filters: Dictionary) -> Array:
+static func find_nodes(root: Node, search_root: Node, filters: Dictionary) -> Array:
 	var out: Array = []
-	_walk_find(root, root, filters, out)
+	_walk_find(root, search_root, filters, out)
 	return out
 
 
 static func _walk_find(root: Node, node: Node, filters: Dictionary, out: Array) -> void:
-	if _match_filters(node, filters):
+	if _match_filters(root, node, filters):
 		out.append(node_summary(node, root))
 	for child in node.get_children():
 		_walk_find(root, child, filters, out)
 
 
-static func _match_filters(node: Node, filters: Dictionary) -> bool:
+static func _match_filters(root: Node, node: Node, filters: Dictionary) -> bool:
 	for key: String in FILTER_KEYS:
 		if not filters.has(key):
 			continue
@@ -75,6 +75,28 @@ static func _match_filters(node: Node, filters: Dictionary) -> bool:
 			"has_prop":
 				if not _has_prop(node, pattern):
 					return false
+			"path_pattern":
+				if not _path_matches(pattern, path_of(root, node)):
+					return false
+	return true
+
+
+# Match an absolute path against a segment-wise glob pattern (e.g. /A/*/C).
+# `*` matches one path segment, `?` one character within a segment.
+static func _path_matches(pattern: String, path: String) -> bool:
+	var p := pattern.strip_edges()
+	var a := path.strip_edges()
+	while p.begins_with("/"):
+		p = p.substr(1)
+	while a.begins_with("/"):
+		a = a.substr(1)
+	var pattern_segments := p.split("/")
+	var path_segments := a.split("/")
+	if pattern_segments.size() != path_segments.size():
+		return false
+	for i in pattern_segments.size():
+		if not path_segments[i].match(pattern_segments[i]):
+			return false
 	return true
 
 
@@ -95,6 +117,23 @@ static func inspect(node: Node) -> Variant:
 	if node.has_method("agent_inspect"):
 		return _json_value(node.call("agent_inspect"))
 	return null
+
+
+static func node_count(node: Node) -> int:
+	var count := 1
+	for child in node.get_children():
+		count += node_count(child)
+	return count
+
+
+static func tree(root: Node, node: Node, max_depth: int, depth: int) -> Dictionary:
+	var out := node_summary(node, root)
+	if depth < max_depth and node.get_child_count() > 0:
+		var children_arr: Array = []
+		for child in node.get_children():
+			children_arr.append(tree(root, child, max_depth, depth + 1))
+		out["children"] = children_arr
+	return out
 
 
 static func _script_info(node: Node) -> Dictionary:

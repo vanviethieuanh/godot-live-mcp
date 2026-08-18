@@ -12,8 +12,11 @@ func _init() -> void:
 	failed = _test_children_summary() or failed
 	failed = _test_props_filtering() or failed
 	failed = _test_find_filters() or failed
+	failed = _test_find_path_pattern() or failed
 	failed = _test_inspect_hook() or failed
 	failed = _test_path_resolution() or failed
+	failed = _test_node_count() or failed
+	failed = _test_tree_dump() or failed
 	print("TREE ENGINE TEST ", "PASS" if not failed else "FAIL")
 	quit(0 if not failed else 1)
 
@@ -81,21 +84,68 @@ func _test_props_filtering() -> bool:
 func _test_find_filters() -> bool:
 	var failed := false
 	var scene := _build_scene()
-	var by_type: Array = TreeEngineScript.find_nodes(scene, {"type": "Node2D"})
+	var by_type: Array = TreeEngineScript.find_nodes(scene, scene, {"type": "Node2D"})
 	if by_type.size() != 1 or str((by_type[0] as Dictionary).path) != "/Building":
 		push_error("FAIL: find by type %s" % JSON.stringify(by_type))
 		failed = true
-	var by_name: Array = TreeEngineScript.find_nodes(scene, {"name": "R*"})
+	var by_name: Array = TreeEngineScript.find_nodes(scene, scene, {"name": "R*"})
 	if by_name.size() != 1 or str((by_name[0] as Dictionary).name) != "Roof":
 		push_error("FAIL: find by name glob %s" % JSON.stringify(by_name))
 		failed = true
-	var by_script: Array = TreeEngineScript.find_nodes(scene, {"script": "fixture_agent_node.gd"})
+	var by_script: Array = TreeEngineScript.find_nodes(scene, scene, {"script": "fixture_agent_node.gd"})
 	if by_script.size() != 1 or str((by_script[0] as Dictionary).name) != "Agent":
 		push_error("FAIL: find by script %s" % JSON.stringify(by_script))
 		failed = true
-	var by_prop: Array = TreeEngineScript.find_nodes(scene, {"has_prop": "speed"})
+	var by_prop: Array = TreeEngineScript.find_nodes(scene, scene, {"has_prop": "speed"})
 	if by_prop.size() != 1 or str((by_prop[0] as Dictionary).name) != "Agent":
 		push_error("FAIL: find by has_prop %s" % JSON.stringify(by_prop))
+		failed = true
+	return failed
+
+
+func _build_pattern_scene() -> Node:
+	var scene := Node.new()
+	scene.name = "Scene"
+	var a := Node.new()
+	a.name = "A"
+	scene.add_child(a)
+	for child_name in ["B", "X", "D"]:
+		var child := Node.new()
+		child.name = child_name
+		a.add_child(child)
+		var c := Node.new()
+		c.name = "C"
+		child.add_child(c)
+		if child_name == "D":
+			var deep := Node.new()
+			deep.name = "C2"
+			c.add_child(deep)
+	return scene
+
+
+func _test_find_path_pattern() -> bool:
+	var failed := false
+	var scene := _build_pattern_scene()
+	var matches: Array = TreeEngineScript.find_nodes(scene, scene, {"path_pattern": "/A/*/C"})
+	var paths: Array[String] = []
+	for row: Variant in matches:
+		paths.append(str((row as Dictionary).path))
+	if paths != ["/A/B/C", "/A/X/C", "/A/D/C"]:
+		push_error("FAIL: path_pattern /A/*/C -> %s" % str(paths))
+		failed = true
+	var q: Array = TreeEngineScript.find_nodes(scene, scene, {"path_pattern": "/A/?/C"})
+	if q.size() != 3:
+		push_error("FAIL: path_pattern single-char ? -> %d" % q.size())
+		failed = true
+	if not TreeEngineScript.find_nodes(scene, scene, {"path_pattern": "/A/B/C/D"}).is_empty():
+		push_error("FAIL: path_pattern no-match should be empty")
+		failed = true
+	if TreeEngineScript.find_nodes(scene, scene, {"path_pattern": "A/B/C"}).size() != 1:
+		push_error("FAIL: path_pattern without leading slash")
+		failed = true
+	var deep: Array = TreeEngineScript.find_nodes(scene, scene, {"path_pattern": "/A/*/C/C2"})
+	if deep.size() != 1 or str((deep[0] as Dictionary).path) != "/A/D/C/C2":
+		push_error("FAIL: path_pattern deeper match %s" % str(deep))
 		failed = true
 	return failed
 
@@ -109,6 +159,43 @@ func _test_inspect_hook() -> bool:
 		failed = true
 	if TreeEngineScript.inspect(scene.get_node("Building")) != null:
 		push_error("FAIL: inspect returned data for node without hook")
+		failed = true
+	return failed
+
+
+func _test_node_count() -> bool:
+	var failed := false
+	var scene := _build_scene()
+	if TreeEngineScript.node_count(scene) != 4:
+		push_error("FAIL: node_count %d != 4" % TreeEngineScript.node_count(scene))
+		failed = true
+	if TreeEngineScript.node_count(scene.get_node("Building")) != 2:
+		push_error("FAIL: subtree node_count")
+		failed = true
+	return failed
+
+
+func _test_tree_dump() -> bool:
+	var failed := false
+	var scene := _build_scene()
+	var dump: Dictionary = TreeEngineScript.tree(scene, scene, 2, 0)
+	if str(dump.path) != "/" or str(dump.name) != "Scene":
+		push_error("FAIL: tree root %s" % JSON.stringify(dump))
+		failed = true
+	var children: Array = dump.get("children", [])
+	if children.size() != 2:
+		push_error("FAIL: tree root children size")
+		failed = true
+	var building: Dictionary = children[0]
+	if not building.has("children"):
+		push_error("FAIL: depth 2 should include grandchildren")
+		failed = true
+	elif str((building["children"] as Array)[0].path) != "/Building/Roof":
+		push_error("FAIL: grandchild path")
+		failed = true
+	var shallow: Dictionary = TreeEngineScript.tree(scene, scene, 1, 0)
+	if (shallow["children"] as Array)[0].has("children"):
+		push_error("FAIL: depth 1 should stop at children")
 		failed = true
 	return failed
 

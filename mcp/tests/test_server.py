@@ -70,7 +70,8 @@ async def test_tree_find_with_all_filters(monkeypatch: pytest.MonkeyPatch) -> No
     async with Client(mcp) as client:
         await client.call_tool(
             "tree_find",
-            {"path": "/City", "type": "Node2D", "name": "Office*", "script": "office.gd", "has_prop": "speed"},
+            {"path": "/City", "type": "Node2D", "name": "Office*", "script": "office.gd", "has_prop": "speed",
+             "path_pattern": "/City/*/Fountain"},
         )
     assert captured["args"] == {
         "path": "/City",
@@ -78,7 +79,22 @@ async def test_tree_find_with_all_filters(monkeypatch: pytest.MonkeyPatch) -> No
         "name": "Office*",
         "script": "office.gd",
         "has_prop": "speed",
+        "path_pattern": "/City/*/Fountain",
     }
+
+
+@pytest.mark.anyio
+async def test_tree_find_path_pattern_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return []
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("tree_find", {"path_pattern": "/*/Plaza/*"})
+    assert captured["args"] == {"path": "/", "path_pattern": "/*/Plaza/*"}
 
 
 @pytest.mark.anyio
@@ -165,17 +181,61 @@ async def test_tree_remove_and_move(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_tree_inspect_no_hook(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tree_client, "request", _stub(None))
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_inspect", {"path": "/Node"})
+    assert result.structured_content == {"agent_inspect": False}
+
+
+@pytest.mark.anyio
+async def test_tree_editor(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"godot_version": "4.7.1.stable"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_editor", {})
+    assert captured == {"op": "editor", "args": None}  # None is normalized to {} on the wire
+    assert result.structured_content == {"godot_version": "4.7.1.stable"}
+
+
+@pytest.mark.anyio
+async def test_tree_dump(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[Any] = []
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured.append((op, args))
+        return {}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("tree_dump", {"path": "/City", "depth": 3})
+        await client.call_tool("tree_dump", {})
+    assert captured == [
+        ("tree", {"path": "/City", "depth": 3}),
+        ("tree", {"path": "/", "depth": 2}),
+    ]
+
+
+@pytest.mark.anyio
 async def test_tools_are_listed() -> None:
     async with Client(mcp) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
     assert names == {
         "tree_ping",
         "tree_scene",
+        "tree_editor",
         "tree_query",
         "tree_children",
         "tree_props",
         "tree_find",
         "tree_inspect",
+        "tree_dump",
         "tree_set",
         "tree_add",
         "tree_remove",

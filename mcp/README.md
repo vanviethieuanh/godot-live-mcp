@@ -12,12 +12,14 @@ Built with the official [MCP Python SDK](https://github.com/modelcontextprotocol
 | Tool | Args | Bridge op |
 |------|------|-----------|
 | `tree_ping` | – | `ping` |
+| `tree_editor` | – | `editor` |
 | `tree_scene` | – | `scene` |
 | `tree_query` | `path` | `query` |
 | `tree_children` | `path` | `children` |
 | `tree_props` | `path` | `props` |
-| `tree_find` | `path? type? name? script? has_prop?` | `find` |
+| `tree_find` | `path? type? name? script? has_prop? path_pattern?` | `find` |
 | `tree_inspect` | `path` | `inspect` |
+| `tree_dump` | `path? depth?` | `tree` |
 | `tree_set` | `path property value` | `set` |
 | `tree_add` | `parent_path node_type node_name properties?` | `add` |
 | `tree_remove` | `path` | `remove` |

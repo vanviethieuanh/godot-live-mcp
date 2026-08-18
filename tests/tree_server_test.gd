@@ -30,6 +30,7 @@ func _process(_delta: float) -> bool:
 			_server = Server.new()
 			_server.root_provider = func() -> Node: return scene
 			_server.undo_redo_provider = func() -> Variant: return UndoRedo.new()
+			_server.modified_provider = func() -> bool: return true
 			_server.port = TEST_PORT
 			root.add_child(_server)
 			var err: int = _server.start()
@@ -96,6 +97,11 @@ func _build_requests() -> void:
 		{"id": 15, "op": "query", "args": {"path": "/Building/Agent"}},
 		{"id": 16, "op": "remove", "args": {"path": "/NewNode"}},
 		{"id": 17, "op": "query", "args": {"path": "/NewNode"}},
+		{"id": 18, "op": "editor", "args": {}},
+		{"id": 19, "op": "tree", "args": {"path": "/", "depth": 2}},
+		{"id": 20, "op": "scene", "args": {}},
+		{"id": 21, "op": "add", "args": {"parent_path": "/Building", "node_type": "Node2D", "node_name": "Sub"}},
+		{"id": 22, "op": "find", "args": {"path": "/Building", "type": "Node2D"}},
 	]
 
 
@@ -185,6 +191,31 @@ func _handle_response(line: String) -> void:
 		17:
 			if bool(resp.get("ok", true)) or str(resp.get("error", "")).is_empty():
 				push_error("FAIL: removed node should be gone")
+				_failed = true
+		18:
+			var editor_info: Dictionary = resp.get("result")
+			if not bool(resp.get("ok", false)) or str(editor_info.get("godot_version", "")).is_empty() \
+					or str(editor_info.get("project_name", "")).is_empty():
+				push_error("FAIL: editor info %s" % JSON.stringify(editor_info))
+				_failed = true
+		19:
+			var dump: Dictionary = resp.get("result")
+			var dump_children: Array = dump.get("children", [])
+			if not bool(resp.get("ok", false)) or str(dump.get("path", "")) != "/" or dump_children.size() != 2:
+				push_error("FAIL: tree dump %s" % JSON.stringify(dump))
+				_failed = true
+		20:
+			if not bool((resp.get("result") as Dictionary).modified):
+				push_error("FAIL: scene modified flag should be true")
+				_failed = true
+		21:
+			if not bool(resp.get("ok", false)):
+				push_error("FAIL: add Sub: %s" % str(resp.get("error", "")))
+				_failed = true
+		22:
+			var sub_found: Array = resp.get("result")
+			if sub_found.size() != 1 or str((sub_found[0] as Dictionary).path) != "/Building/Sub":
+				push_error("FAIL: find under sub-root uses absolute paths: %s" % JSON.stringify(sub_found))
 				_failed = true
 		_:
 			push_error("FAIL: unexpected response id %d" % req_id)

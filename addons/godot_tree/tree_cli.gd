@@ -3,7 +3,8 @@ extends SceneTree
 ## Headless client for the Godot Tree bridge. Sends one NDJSON request to the
 ## running editor's TreeServer over loopback TCP and prints the result.
 ## Run: godot --headless -s addons/godot_tree/tree_cli.gd -- [--port N] [--host H] <op> [args]
-## Ops: ping | scene | query <path> | children <path> | props <path> |
+## Ops: ping | scene | editor | tree <path> [depth] |
+##      query <path> | children <path> | props <path> |
 ##      inspect <path> | find [--path P] [--type T] [--name N] [--script S] [--has-prop P] |
 ##      set <path> <property> [--value <json>] |
 ##      add <parent> <type> <name> [--properties <json>] |
@@ -96,9 +97,9 @@ func _parse_args() -> void:
 				if i + 1 < args.size():
 					_timeout_ms = int(args[i + 1])
 					i += 1
-			"--path", "--type", "--name", "--script", "--has-prop", "--properties", "--index", "--value":
+			"--path", "--type", "--name", "--script", "--has-prop", "--path-pattern", "--properties", "--index", "--value":
 				if i + 1 < args.size():
-					_filters[arg.trim_prefix("--")] = args[i + 1]
+					_filters[arg.trim_prefix("--").replace("-", "_")] = args[i + 1]
 					i += 1
 			_:
 				if arg.begins_with("--"):
@@ -117,8 +118,12 @@ func _build_request() -> Dictionary:
 	match _op:
 		"query", "children", "props", "inspect":
 			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+		"tree":
+			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+			if _op_args.size() > 1:
+				args["depth"] = int(_op_args[1])
 		"find":
-			for key: String in ["path", "type", "name", "script", "has_prop"]:
+			for key: String in ["path", "type", "name", "script", "has_prop", "path_pattern"]:
 				if _filters.has(key):
 					args[key] = _filters[key]
 		"set":

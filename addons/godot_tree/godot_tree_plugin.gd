@@ -9,7 +9,8 @@ const AGENT_PREFIX_SETTING := "addons/godot_tree/agent_undo_prefix"
 const DEFAULT_AGENT_PREFIX := "[agent] "
 
 var _server: TreeServerScript = null
-var _dock: EditorDock = null
+var _dock: Variant = null
+var _saved_version := -1
 
 
 func _enter_tree() -> void:
@@ -17,24 +18,22 @@ func _enter_tree() -> void:
 	_server = TreeServerScript.new()
 	_server.root_provider = Callable(self, "_edited_scene_root")
 	_server.undo_redo_provider = Callable(self, "_undo_manager")
+	_server.modified_provider = Callable(self, "_scene_modified")
 	_server.port = _bridge_port()
 	add_child(_server)
 	_server.start()
+	_reset_saved_version()
 
-	var icon: Texture2D = load("res://addons/godot_tree/icon.svg")
-	_dock = EditorDock.new()
-	_dock.title = "Scene Tree"
-	if icon != null:
-		_dock.dock_icon = icon
-	_dock.default_slot = EditorDock.DOCK_SLOT_RIGHT_BL
-	var content := TreeDockScript.new()
-	content.server = _server
-	_dock.add_child(content)
-	add_dock(_dock)
-	add_tool_menu_item("Scene Tree", Callable(self, "_open_dock"))
+	if _has_editor_dock():
+		_create_dock()
+	else:
+		print("[GodotTree] EditorDock unavailable (Godot < 4.5); running bridge-only")
 
+	scene_changed.connect(func(_path: String) -> void: _reset_saved_version())
 	scene_changed.connect(_refresh_dock)
+	scene_closed.connect(func(_path: String) -> void: _reset_saved_version())
 	scene_closed.connect(func(_path: String) -> void: _refresh_dock())
+	scene_saved.connect(func(_path: String) -> void: _reset_saved_version())
 	scene_saved.connect(func(_path: String) -> void: _refresh_dock())
 
 
@@ -48,6 +47,24 @@ func _exit_tree() -> void:
 		_server.stop()
 		_server.queue_free()
 		_server = null
+
+
+func _has_editor_dock() -> bool:
+	return ClassDB.class_exists("EditorDock")
+
+
+func _create_dock() -> void:
+	var icon: Texture2D = load("res://addons/godot_tree/icon.svg")
+	_dock = ClassDB.instantiate("EditorDock")
+	_dock.title = "Scene Tree"
+	if icon != null:
+		_dock.dock_icon = icon
+	_dock.default_slot = _dock.DOCK_SLOT_RIGHT_BL
+	var content := TreeDockScript.new()
+	content.server = _server
+	_dock.add_child(content)
+	add_dock(_dock)
+	add_tool_menu_item("Scene Tree", Callable(self, "_open_dock"))
 
 
 func _bridge_port() -> int:
@@ -70,6 +87,29 @@ func _edited_scene_root() -> Node:
 
 func _undo_manager() -> Variant:
 	return get_editor_interface().get_editor_undo_redo()
+
+
+func _scene_modified() -> bool:
+	return _current_version() != _saved_version
+
+
+func _reset_saved_version() -> void:
+	_saved_version = _current_version()
+
+
+func _current_version() -> int:
+	var ur: Variant = get_editor_interface().get_editor_undo_redo()
+	if ur == null:
+		return 0
+	var root: Node = _edited_scene_root()
+	if root != null and ur.has_method("get_object_history_id") and ur.has_method("get_history_undo_redo"):
+		var history_id: int = ur.get_object_history_id(root)
+		var scene_ur: Variant = ur.get_history_undo_redo(history_id)
+		if scene_ur != null and scene_ur.has_method("get_version"):
+			return int(scene_ur.get_version())
+	if ur.has_method("get_version"):
+		return int(ur.get_version())
+	return 0
 
 
 func _refresh_dock(_arg: Variant = null) -> void:

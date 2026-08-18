@@ -12,6 +12,7 @@ const MAX_READS_PER_FRAME: int = 256
 
 var root_provider: Callable = Callable()
 var undo_redo_provider: Callable = Callable()
+var modified_provider: Callable = Callable()
 var port: int = 41234
 var bind_address: String = "127.0.0.1"
 
@@ -128,6 +129,15 @@ func _dispatch(op: String, args: Dictionary) -> Array:
 			return ["", {"pong": true, "scene": _scene_info(root)}]
 		"scene":
 			return ["", _scene_info(root)]
+		"editor":
+			return ["", _editor_info(root)]
+		"tree":
+			var tree_root: Node = TreeEngineScript.resolve(root, str(args.get("path", "/")))
+			if tree_root == null:
+				return ["node not found: %s" % str(args.get("path", "/")), null]
+			var depth := int(args.get("depth", 2))
+			depth = clampi(depth, 0, 10)
+			return ["", TreeEngineScript.tree(root, tree_root, depth, 0)]
 		"find":
 			var search_root: Node = TreeEngineScript.resolve(root, str(args.get("path", "/")))
 			if search_root == null:
@@ -136,7 +146,7 @@ func _dispatch(op: String, args: Dictionary) -> Array:
 			for key: String in TreeEngineScript.FILTER_KEYS:
 				if args.has(key):
 					filters[key] = str(args[key])
-			return ["", TreeEngineScript.find_nodes(search_root, filters)]
+			return ["", TreeEngineScript.find_nodes(root, search_root, filters)]
 		"set":
 			return TreeMutatorScript.set_property(root, _undo_redo(), args)
 		"add":
@@ -174,9 +184,32 @@ func _undo_redo() -> Variant:
 func _scene_info(root: Node) -> Dictionary:
 	if root == null:
 		return {"loaded": false}
-	return {
+	var out := {
 		"loaded": true,
 		"name": str(root.name),
 		"scene_file_path": root.scene_file_path,
 		"children_count": root.get_child_count(),
+		"root": {
+			"name": str(root.name),
+			"type": root.get_class(),
+		},
+		"node_count": TreeEngineScript.node_count(root),
+	}
+	if modified_provider.is_valid():
+		out["modified"] = bool(modified_provider.call())
+	else:
+		out["modified"] = false
+	return out
+
+
+func _editor_info(root: Node) -> Dictionary:
+	var version: Dictionary = Engine.get_version_info()
+	var current_scene := ""
+	if root != null:
+		current_scene = root.scene_file_path
+	return {
+		"godot_version": str(version.get("string", "")),
+		"project_name": str(ProjectSettings.get_setting("application/config/name", "")),
+		"project_path": ProjectSettings.globalize_path("res://"),
+		"current_scene": current_scene,
 	}

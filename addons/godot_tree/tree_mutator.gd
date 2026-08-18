@@ -142,31 +142,36 @@ static func _undo_redo(ur) -> Variant:
 
 static func _create_action(ur, name: String) -> void:
 	var display_name := agent_action_prefix + name
-	if ur is EditorUndoRedoManager:
-		ur.create_action(display_name)  # mark_unsaved defaults to true
-	else:
-		ur.create_action(display_name)
+	ur.create_action(display_name)  # EditorUndoRedoManager marks the scene unsaved by default
 	last_action_name = display_name
 
 
 static func _do_method(ur, object: Object, method: String, args: Array = []) -> void:
-	var urm := ur as EditorUndoRedoManager
-	if urm != null:
+	if _object_method_form(ur, "add_do_method"):
 		var call_args: Array = [object, method]
 		call_args.append_array(args)
-		urm.callv("add_do_method", call_args)
+		ur.callv("add_do_method", call_args)
 	else:
 		ur.add_do_method(Callable(object, method).bindv(args))
 
 
 static func _undo_method(ur, object: Object, method: String, args: Array = []) -> void:
-	var urm := ur as EditorUndoRedoManager
-	if urm != null:
+	if _object_method_form(ur, "add_undo_method"):
 		var call_args: Array = [object, method]
 		call_args.append_array(args)
-		urm.callv("add_undo_method", call_args)
+		ur.callv("add_undo_method", call_args)
 	else:
 		ur.add_undo_method(Callable(object, method).bindv(args))
+
+
+# UndoRedo's add_do_method/add_undo_method signature differs across Godot 4.x:
+# some versions take a single Callable, others take (object, method, ...). The
+# registered argument count tells us which form to use, so this runs on 4.0-4.7
+# without referencing version-specific class names.
+static func _object_method_form(ur, method: String) -> bool:
+	if ur == null:
+		return false
+	return ur.get_method_argument_count(method) >= 2
 
 
 static func _valid_type_name(name: String) -> bool:

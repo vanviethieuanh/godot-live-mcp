@@ -30,8 +30,20 @@ def tree_ping() -> dict[str, Any]:
 
 @mcp.tool()
 def tree_scene() -> dict[str, Any]:
-    """Return info about the scene currently open in the Godot editor."""
+    """Return info about the scene currently open in the Godot editor: root name/type, node count, and whether it has unsaved changes."""
     return _bridge("scene")
+
+
+@mcp.tool()
+def tree_editor() -> dict[str, Any]:
+    """Return basic info about the running engine/project: Godot version, project name, project path, and the current scene."""
+    return _bridge("editor")
+
+
+@mcp.tool()
+def tree_dump(path: str = "/", depth: int = 2) -> dict[str, Any]:
+    """Return a nested dump of the scene tree under `path`, up to `depth` levels deep (0 = node only)."""
+    return _bridge("tree", {"path": path, "depth": depth})
 
 
 @mcp.tool()
@@ -59,8 +71,9 @@ def tree_find(
     name: str | None = None,
     script: str | None = None,
     has_prop: str | None = None,
+    path_pattern: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Find nodes under `path` matching the given filters. `name` and `script` accept glob patterns."""
+    """Find nodes under `path` matching the given filters. `name`, `script`, and `path_pattern` accept glob patterns; `path_pattern` matches absolute paths segment-wise (e.g. /A/*/C)."""
     args: dict[str, Any] = {"path": path}
     if type is not None:
         args["type"] = type
@@ -70,13 +83,18 @@ def tree_find(
         args["script"] = script
     if has_prop is not None:
         args["has_prop"] = has_prop
+    if path_pattern is not None:
+        args["path_pattern"] = path_pattern
     return _bridge("find", args)
 
 
 @mcp.tool()
 def tree_inspect(path: str = "/") -> dict[str, Any]:
-    """Return semantic output for the node at `path` if it implements `agent_inspect()`."""
-    return _bridge("inspect", {"path": path})
+    """Return semantic output for the node at `path` if it implements `agent_inspect()`, else `{"agent_inspect": false}`."""
+    result = _bridge("inspect", {"path": path})
+    if result is None:
+        return {"agent_inspect": False}
+    return result
 
 
 @mcp.tool()
