@@ -2,13 +2,20 @@ class_name TreeServer
 extends Node
 
 ## Loopback TCP host for the Godot Tree bridge. Polls non-blockingly in
-## _process (main thread) and dispatches NDJSON requests to TreeEngine.
-## The scene root is fetched live through `root_provider`, so the editor's
-## in-memory scene is always the source of truth.
+## _process (main thread) and dispatches NDJSON requests to per-group handlers
+## (handlers/handler_*.gd). The scene root is fetched live through
+## `root_provider`, so the editor's in-memory scene is always the source of
+## truth. This file keeps only the general logic: communications, server
+## lifecycle and request parsing; how each op is executed lives in the handler
+## modules.
 
-const TreeEngineScript := preload("res://addons/godot_tree/tree_engine.gd")
-const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
-const TreeUidScript := preload("res://addons/godot_tree/tree_uid.gd")
+const HANDLER_MODULES: Array = [
+	preload("res://addons/godot_tree/handlers/handler_info.gd"),
+	preload("res://addons/godot_tree/handlers/handler_log.gd"),
+	preload("res://addons/godot_tree/handlers/handler_tree_read.gd"),
+	preload("res://addons/godot_tree/handlers/handler_tree_write.gd"),
+	preload("res://addons/godot_tree/handlers/handler_uid.gd"),
+]
 const MAX_READS_PER_FRAME: int = 256
 
 var root_provider: Callable = Callable()
@@ -25,9 +32,13 @@ var _tcp: TCPServer = null
 var _conn: StreamPeerTCP = null
 var _buffer: String = ""
 
+## op name -> Callable(handler_module, "handle").bind(self)
+var _handlers: Dictionary = {}
+
 
 func start() -> Error:
 	stop()
+	_register_handlers()
 	_tcp = TCPServer.new()
 	var err := _tcp.listen(port, bind_address)
 	if err != OK:
@@ -127,73 +138,31 @@ func _handle(line: String) -> String:
 	return JSON.stringify(response)
 
 
+## Build the op -> handler map. Each handler module declares the op names it
+## owns and a static `handle(server, op, args)` returning [error, result]. A
+## closure over `module` + `self` gives the handler the shared provider state.
+func _register_handlers() -> void:
+	_handlers.clear()
+	for module: GDScript in HANDLER_MODULES:
+		for op: String in module.op_names():
+			_handlers[op] = func(_op: String, _args: Dictionary) -> Array:
+				return module.handle(self, _op, _args)
+
+
+## Route one op to its registered handler module; unknown ops error.
 func _dispatch(op: String, args: Dictionary) -> Array:
-	var root: Node = root_provider.call() if root_provider.is_valid() else null
-	match op:
-		"ping":
-			return ["", {"pong": true, "scene": _scene_info(root)}]
-		"scene":
-			return ["", _scene_info(root)]
-		"editor":
-			return ["", _editor_info(root)]
-		"log":
-			if log_buffer == null:
-				return ["logging not available (requires Godot >= 4.5)", null]
-			var since := int(args.get("since", 0))
-			var limit := int(args.get("limit", 0))
-			return ["", log_buffer.call("read_since", since, maxi(limit, 0))]
-		"log_probe":
-			_emit_probe(str(args.get("message", "probe")), str(args.get("level", "info")))
-			return ["", {"ok": true}]
-		"tree":
-			var tree_root: Node = TreeEngineScript.resolve(root, str(args.get("path", "/")))
-			if tree_root == null:
-				return ["node not found: %s" % str(args.get("path", "/")), null]
-			var depth := int(args.get("depth", 2))
-			depth = clampi(depth, 0, 10)
-			return ["", TreeEngineScript.tree(root, tree_root, depth, 0)]
-		"find":
-			var search_root: Node = TreeEngineScript.resolve(root, str(args.get("path", "/")))
-			if search_root == null:
-				return ["search root not found: %s" % str(args.get("path", "/")), null]
-			var filters: Dictionary = {}
-			for key: String in TreeEngineScript.FILTER_KEYS:
-				if args.has(key):
-					filters[key] = str(args[key])
-			return ["", TreeEngineScript.find_nodes(root, search_root, filters)]
-		"set":
-			return TreeMutatorScript.set_property(root, _undo_redo(), args)
-		"add":
-			return TreeMutatorScript.add(root, _undo_redo(), args)
-		"create_scene":
-			return TreeMutatorScript.create_scene(args)
-		"remove":
-			return TreeMutatorScript.remove(root, _undo_redo(), args)
-		"move":
-			return TreeMutatorScript.move(root, _undo_redo(), args)
-		"get_uid":
-			return TreeUidScript.get_uid(args)
-		"update_project_uids":
-			return TreeUidScript.update_project_uids(args)
-		_:
-			if op not in ["query", "children", "props", "inspect"]:
-				return ["unknown op: %s" % op, null]
-			var node: Node = TreeEngineScript.resolve(root, str(args.get("path", "/")))
-			if node == null:
-				return ["node not found: %s" % str(args.get("path", "/")), null]
-			match op:
-				"query":
-					return ["", TreeEngineScript.node_summary(node, root)]
-				"children":
-					return ["", TreeEngineScript.children(node, root)]
-				"props":
-					return ["", TreeEngineScript.props(node)]
-				"inspect":
-					return ["", TreeEngineScript.inspect(node)]
-	return ["unknown op: %s" % op, null]
+	if not _handlers.has(op):
+		return ["unknown op: %s" % op, null]
+	return (_handlers[op] as Callable).call(op, args)
 
 
-func _undo_redo() -> Variant:
+## Shared context helpers for handlers.
+
+func current_root() -> Node:
+	return root_provider.call() if root_provider.is_valid() else null
+
+
+func current_undo_redo() -> Variant:
 	if undo_redo_provider.is_valid():
 		var ur: Variant = undo_redo_provider.call()
 		if ur != null:
@@ -201,48 +170,7 @@ func _undo_redo() -> Variant:
 	return UndoRedo.new()
 
 
-## Emit a std output/error log from the editor process for testing log_read.
-## print()/push_error()/push_warning() go through the global logger stream, so
-## the CaptureLogger captures them and they show up on the next log_read.
-func _emit_probe(message: String, level: String) -> void:
-	match level:
-		"error":
-			push_error("[GodotTree probe] %s" % message)
-		"warning":
-			push_warning("[GodotTree probe] %s" % message)
-		_:
-			print("[GodotTree probe] %s" % message)
-
-
-func _scene_info(root: Node) -> Dictionary:
-	if root == null:
-		return {"loaded": false}
-	var out := {
-		"loaded": true,
-		"name": str(root.name),
-		"scene_file_path": root.scene_file_path,
-		"children_count": root.get_child_count(),
-		"root": {
-			"name": str(root.name),
-			"type": root.get_class(),
-		},
-		"node_count": TreeEngineScript.node_count(root),
-	}
+func is_modified() -> bool:
 	if modified_provider.is_valid():
-		out["modified"] = bool(modified_provider.call())
-	else:
-		out["modified"] = false
-	return out
-
-
-func _editor_info(root: Node) -> Dictionary:
-	var version: Dictionary = Engine.get_version_info()
-	var current_scene := ""
-	if root != null:
-		current_scene = root.scene_file_path
-	return {
-		"godot_version": str(version.get("string", "")),
-		"project_name": str(ProjectSettings.get_setting("application/config/name", "")),
-		"project_path": ProjectSettings.globalize_path("res://"),
-		"current_scene": current_scene,
-	}
+		return bool(modified_provider.call())
+	return false
