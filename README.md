@@ -76,6 +76,8 @@ flowchart LR
 | `godot-live_create_scene` | `root_type root_name save_path children?` | Build a whole scene in-memory from a declarative nested spec and save it to a `.tscn`; detached (no new-scene editor entry), returns the serialized tree |
 | `godot-live_log_read` | `since? limit?` | Delta-read captured `print`/`push_error`/`push_warning` output (Godot >= 4.5; see below) |
 | `godot-live_log_probe` | `message? level?` | Emit a std output/error log from the editor process to test `log_read` capture |
+| `godot-live_get_uid` | `path? uid?` | Look up a resource UID (Godot 4.4+): pass a `res://` path or a `uid://` string; returns `{"path", "uid"}` for either direction |
+| `godot-live_update_project_uids` | `dry_run?` | Assign a UID to every project resource that lacks one, persisting `.uid` files (Godot 4.4+); mirrors Project > Tools > "Update UIDs". `dry_run` previews without writing |
 
 Read ops map to the bridge 1:1; mutation ops go through the editor's
 `EditorUndoRedoManager`, so they're **undoable in the editor** (Ctrl+Z) and
@@ -121,6 +123,10 @@ godot --headless -s addons/godot_tree/tree_cli.gd -- add /City Node2D Office --p
 godot --headless -s addons/godot_tree/tree_cli.gd -- create_scene Node2D City res://scenes/city.tscn --children '[{"node_type":"Node2D","node_name":"Plaza"}]'
 godot --headless -s addons/godot_tree/tree_cli.gd -- move /City/Office /
 godot --headless -s addons/godot_tree/tree_cli.gd -- remove /City/Office
+godot --headless -s addons/godot_tree/tree_cli.gd -- get_uid res://scenes/city.tscn
+godot --headless -s addons/godot_tree/tree_cli.gd -- get_uid --uid uid://cgqx7mih5boao
+godot --headless -s addons/godot_tree/tree_cli.gd -- update_project_uids --dry-run
+godot --headless -s addons/godot_tree/tree_cli.gd -- update_project_uids
 ```
 
 Port override: Editor Settings → `addons/godot_tree/port`, or restart the
@@ -152,6 +158,10 @@ developed against `config/features=PackedStringArray("4.7")`.
 **Log capture** (`log_read`) requires Godot **4.5+**, since it uses the
 `Logger`/`OS.add_logger()` API. On older versions the bridge simply reports
 `logging not available`; the rest of the plugin is unaffected.
+
+**Resource UID tools** (`get_uid`, `update_project_uids`) require Godot **4.4+**
+(the `.uid` sidecar format / "Update UIDs" tool). On older versions they report
+`resource UIDs require Godot 4.4+`.
 
 ### Log reading (`godot-live_log_read`)
 
@@ -189,7 +199,7 @@ Newline-delimited JSON over TCP. Request:
 
 Response: `{"id": 1, "ok": true, "result": {...}}` or `{"id": 1, "ok": false, "error": "..."}`.
 
-Ops: `ping`, `scene`, `editor`, `tree`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`.
+Ops: `ping`, `scene`, `editor`, `tree`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`, `get_uid`, `update_project_uids`.
 
 ## Next steps
 

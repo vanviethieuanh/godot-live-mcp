@@ -8,6 +8,7 @@ extends Node
 
 const TreeEngineScript := preload("res://addons/godot_tree/tree_engine.gd")
 const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
+const TreeUidScript := preload("res://addons/godot_tree/tree_uid.gd")
 const MAX_READS_PER_FRAME: int = 256
 
 var root_provider: Callable = Callable()
@@ -170,6 +171,10 @@ func _dispatch(op: String, args: Dictionary) -> Array:
 			return TreeMutatorScript.remove(root, _undo_redo(), args)
 		"move":
 			return TreeMutatorScript.move(root, _undo_redo(), args)
+		"get_uid":
+			return TreeUidScript.get_uid(args)
+		"update_project_uids":
+			return TreeUidScript.update_project_uids(args)
 		_:
 			if op not in ["query", "children", "props", "inspect"]:
 				return ["unknown op: %s" % op, null]

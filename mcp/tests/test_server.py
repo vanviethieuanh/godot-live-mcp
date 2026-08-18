@@ -329,6 +329,80 @@ async def test_create_scene_omits_empty_children(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.anyio
+async def test_get_uid_by_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"path": "res://a.gd", "uid": "uid://abc"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_uid", {"path": "res://a.gd"})
+    assert captured == {"op": "get_uid", "args": {"path": "res://a.gd"}}
+    assert result.structured_content == {"path": "res://a.gd", "uid": "uid://abc"}
+
+
+@pytest.mark.anyio
+async def test_get_uid_by_uid(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {"path": "res://a.gd", "uid": "uid://abc"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("get_uid", {"uid": "uid://abc"})
+    assert captured["args"] == {"uid": "uid://abc"}
+
+
+@pytest.mark.anyio
+async def test_get_uid_no_args_omits_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {"path": "", "uid": None}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("get_uid", {})
+    assert captured["args"] == {}
+
+
+@pytest.mark.anyio
+async def test_update_project_uids_passes_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"scanned": 10, "already_had_uid": 3, "generated": 7, "skipped": 2}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("update_project_uids", {"dry_run": True})
+    assert captured == {"op": "update_project_uids", "args": {"dry_run": True}}
+    assert result.structured_content == {"scanned": 10, "already_had_uid": 3, "generated": 7, "skipped": 2}
+
+
+@pytest.mark.anyio
+async def test_update_project_uids_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {"scanned": 0, "already_had_uid": 0, "generated": 0, "skipped": 0}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("update_project_uids", {})
+    assert captured["args"] == {"dry_run": False}
+
+
+@pytest.mark.anyio
 async def test_tools_are_listed() -> None:
     async with Client(mcp) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
@@ -349,4 +423,6 @@ async def test_tools_are_listed() -> None:
         "create_scene",
         "log_read",
         "log_probe",
+        "get_uid",
+        "update_project_uids",
     }

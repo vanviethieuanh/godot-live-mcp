@@ -9,7 +9,8 @@ extends SceneTree
 ##      set <path> <property> [--value <json>] |
 ##      add <parent> <type> <name> [--properties <json>] |
 ##      create_scene <root_type> <root_name> <save_path> [--children <json>] |
-##      remove <path> | move <path> <new-parent> [--index N]
+##      remove <path> | move <path> <new-parent> [--index N] |
+##      get_uid <path> | get_uid --uid <uid> | update_project_uids [--dry-run]
 
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 41234
@@ -102,6 +103,8 @@ func _parse_args() -> void:
 				if i + 1 < args.size():
 					_filters[arg.trim_prefix("--").replace("-", "_")] = args[i + 1]
 					i += 1
+			"--dry-run":
+				_filters["dry_run"] = "true"
 			_:
 				if arg.begins_with("--"):
 					printerr("ERROR: unknown flag: %s" % arg)
@@ -154,6 +157,14 @@ func _build_request() -> Dictionary:
 					args["children"] = parsed_children
 		"remove":
 			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+		"get_uid":
+			if _filters.has("uid"):
+				args["uid"] = _filters["uid"]
+			else:
+				args["path"] = _op_args[0] if _op_args.size() > 0 else ""
+		"update_project_uids":
+			if _filters.has("dry_run"):
+				args["dry_run"] = true
 		"move":
 			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
 			args["parent_path"] = _op_args[1] if _op_args.size() > 1 else "/"

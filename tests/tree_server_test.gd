@@ -14,9 +14,15 @@ var _buffer := ""
 var _phase := 0
 var _failed := false
 var _requests: Array = []
+var _uid_path := "res://server_uid_probe.gd"
+var _uid_id := -1
 
 
 func _init() -> void:
+	# Register a synthetic UID into the in-memory cache so get_uid has a
+	# deterministic happy path without touching the real filesystem.
+	_uid_id = ResourceUID.create_id()
+	ResourceUID.add_id(_uid_id, _uid_path)
 	_build_requests()
 
 
@@ -102,6 +108,12 @@ func _build_requests() -> void:
 		{"id": 20, "op": "scene", "args": {}},
 		{"id": 21, "op": "add", "args": {"parent_path": "/Building", "node_type": "Node2D", "node_name": "Sub"}},
 		{"id": 22, "op": "find", "args": {"path": "/Building", "type": "Node2D"}},
+		{"id": 23, "op": "get_uid", "args": {"path": _uid_path}},
+		{"id": 24, "op": "get_uid", "args": {"uid": ResourceUID.id_to_text(_uid_id)}},
+		{"id": 25, "op": "get_uid", "args": {}},
+		{"id": 26, "op": "get_uid", "args": {"uid": "res://not_a_uid"}},
+		{"id": 27, "op": "get_uid", "args": {"uid": "uid://doesnotexist"}},
+		{"id": 28, "op": "update_project_uids", "args": {"dry_run": true}},
 	]
 
 
@@ -216,6 +228,36 @@ func _handle_response(line: String) -> void:
 			var sub_found: Array = resp.get("result")
 			if sub_found.size() != 1 or str((sub_found[0] as Dictionary).path) != "/Building/Sub":
 				push_error("FAIL: find under sub-root uses absolute paths: %s" % JSON.stringify(sub_found))
+				_failed = true
+		23:
+			var g23: Dictionary = resp.get("result")
+			if not bool(resp.get("ok", false)) or str(g23.get("uid", "")) != ResourceUID.id_to_text(_uid_id):
+				push_error("FAIL: get_uid by path %s" % JSON.stringify(resp))
+				_failed = true
+		24:
+			var g24: Dictionary = resp.get("result")
+			if not bool(resp.get("ok", false)) or str(g24.get("path", "")) != _uid_path:
+				push_error("FAIL: get_uid by uid %s" % JSON.stringify(resp))
+				_failed = true
+		25:
+			if bool(resp.get("ok", true)) or str(resp.get("error", "")).is_empty():
+				push_error("FAIL: get_uid with no args should error")
+				_failed = true
+		26:
+			if bool(resp.get("ok", true)) or str(resp.get("error", "")).is_empty():
+				push_error("FAIL: get_uid with non-uid string should error")
+				_failed = true
+		27:
+			if bool(resp.get("ok", true)) or str(resp.get("error", "")).is_empty():
+				push_error("FAIL: get_uid with unknown uid should error")
+				_failed = true
+		28:
+			var stats: Dictionary = resp.get("result")
+			if not bool(resp.get("ok", false)):
+				push_error("FAIL: update_project_uids: %s" % str(resp.get("error", "")))
+				_failed = true
+			elif not stats.has("scanned") or not stats.has("generated"):
+				push_error("FAIL: update_project_uids stats %s" % JSON.stringify(stats))
 				_failed = true
 		_:
 			push_error("FAIL: unexpected response id %d" % req_id)

@@ -160,5 +160,23 @@ def tree_move(path: str, parent_path: str = "/", index: int | None = None) -> di
     return _bridge("move", args)
 
 
+@mcp.tool()
+def get_uid(path: str = "", uid: str = "") -> dict[str, Any]:
+    """Look up a resource UID (Godot 4.4+). Pass exactly one of `path` (a res:// path) or `uid` (a uid:// string). Returns `{"path", "uid"}` for either direction; a path without a UID yields `"uid": null`."""
+    args: dict[str, Any] = {}
+    if path:
+        args["path"] = path
+    if uid:
+        args["uid"] = uid
+    return _bridge("get_uid", args)
+
+
+@mcp.tool()
+def update_project_uids(dry_run: bool = False) -> dict[str, Any]:
+    """Assign a UID to every resource file in the project (res://) that lacks one, persisting `.uid` sidecar files (Godot 4.4+). Mirrors the editor's Project > Tools > 'Update UIDs'. `dry_run` previews the scan without writing. Returns `{"scanned", "already_had_uid", "generated", "skipped"}`."""
+    args: dict[str, Any] = {"dry_run": dry_run}
+    return _bridge("update_project_uids", args)
+
+
 def main() -> None:
     mcp.run()
