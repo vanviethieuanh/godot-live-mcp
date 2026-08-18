@@ -134,6 +134,75 @@ static func move(root: Node, undo_redo, params: Dictionary) -> Array:
 	return ["", {"path": TreeEngineScript.path_of(root, node), "parent": parent_path}]
 
 
+## Build a complete scene tree in-memory from a declarative nested spec and save
+## it to `save_path` as a .tscn. Detached from the currently edited scene: it
+## does not use undo/redo and is not made the editor's active scene (no new-scene
+## entry). Returns the serialized tree so the agent can inspect the result.
+static func create_scene(params: Dictionary) -> Array:
+	var root_type := str(params.get("root_type", ""))
+	if not _valid_type_name(root_type):
+		return ["invalid root_type: %s" % root_type, null]
+	var root_name := str(params.get("root_name", ""))
+	if root_name.is_empty():
+		return ["root_name is required", null]
+	var save_path := str(params.get("save_path", ""))
+	if not save_path.ends_with(".tscn"):
+		return ["save_path must end with .tscn", null]
+	var root := _instantiate(root_type)
+	if root == null:
+		return ["could not instantiate root type: %s" % root_type, null]
+	root.name = root_name
+	var count_holder: Array = [1]
+	var children: Variant = params.get("children", [])
+	if children != null and children is Array:
+		var build_err := _build_children(root, children as Array, root, count_holder)
+		if not build_err.is_empty():
+			return [build_err, null]
+	var packed := PackedScene.new()
+	var pack_err := packed.pack(root)
+	if pack_err != OK:
+		return ["failed to pack scene (%s)" % error_string(pack_err), null]
+	var save_err := ResourceSaver.save(packed, save_path)
+	if save_err != OK:
+		return ["failed to save scene to %s (%s)" % [save_path, error_string(save_err)], null]
+	return ["", {
+		"save_path": save_path,
+		"root": root_type,
+		"name": root_name,
+		"node_count": count_holder[0],
+		"tree": TreeEngineScript.tree(root, root, 32, 0),
+	}]
+
+
+static func _build_children(parent: Node, specs: Array, root: Node, count_holder: Array) -> String:
+	for raw_spec: Variant in specs:
+		if not raw_spec is Dictionary:
+			return "each child spec must be an object"
+		var spec := raw_spec as Dictionary
+		var node_type := str(spec.get("node_type", ""))
+		if not _valid_type_name(node_type):
+			return "invalid node_type: %s" % node_type
+		var node_name := str(spec.get("node_name", ""))
+		if node_name.is_empty():
+			return "node_name is required for %s" % node_type
+		var node := _instantiate(node_type)
+		if node == null:
+			return "could not instantiate node type: %s" % node_type
+		node.name = node_name
+		parent.add_child(node)
+		node.owner = root
+		if spec.has("properties") and spec["properties"] is Dictionary:
+			for key: String in spec["properties"] as Dictionary:
+				if _is_settable(node, key):
+					node.set(key, _json_to_variant(node, key, (spec["properties"] as Dictionary)[key]))
+		count_holder[0] += 1
+		if spec.has("children") and spec["children"] is Array:
+			var child_err := _build_children(node, spec["children"] as Array, root, count_holder)
+			if not child_err.is_empty():
+				return child_err
+	return ""
+
+
 static func _undo_redo(ur) -> Variant:
 	if ur != null:
 		return ur

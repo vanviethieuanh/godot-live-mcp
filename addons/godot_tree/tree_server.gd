@@ -164,6 +164,8 @@ func _dispatch(op: String, args: Dictionary) -> Array:
 			return TreeMutatorScript.set_property(root, _undo_redo(), args)
 		"add":
 			return TreeMutatorScript.add(root, _undo_redo(), args)
+		"create_scene":
+			return TreeMutatorScript.create_scene(args)
 		"remove":
 			return TreeMutatorScript.remove(root, _undo_redo(), args)
 		"move":

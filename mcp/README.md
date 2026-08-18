@@ -24,11 +24,18 @@ Built with the official [MCP Python SDK](https://github.com/modelcontextprotocol
 | `tree_add` | `parent_path node_type node_name properties?` | `add` |
 | `tree_remove` | `path` | `remove` |
 | `tree_move` | `path parent_path index?` | `move` |
+| `create_scene` | `root_type root_name save_path children?` | `create_scene` |
 
 Mutations go through the editor's `EditorUndoRedoManager` (undoable with
 Ctrl+Z, and the scene is automatically marked unsaved). Agent-made mutations
 are tagged in the editor's History panel with `[agent]` (configurable via
 Editor Settings → `addons/godot_tree/agent_undo_prefix`).
+
+`create_scene` is the exception: it builds a new scene **detached** from the
+currently edited scene (in-memory, saved straight to disk via `ResourceSaver`),
+so it is not undoable, does not mark a scene unsaved, and is not opened as a new
+editor scene (no new-scene entry point). `children` is a nested list of
+`{"node_type", "node_name", "properties"?, "children"?}` dicts.
 
 In opencode the tools are prefixed with the server name: `godot-live_tree_query`, etc.
 

@@ -286,6 +286,49 @@ async def test_log_probe_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_create_scene_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"save_path": "res://scenes/city.tscn", "node_count": 4}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "create_scene",
+            {
+                "root_type": "Node2D",
+                "root_name": "City",
+                "save_path": "res://scenes/city.tscn",
+                "children": [{"node_type": "Node2D", "node_name": "Plaza", "properties": {"position": [1, 2]}}],
+            },
+        )
+    assert captured["op"] == "create_scene"
+    assert captured["args"] == {
+        "root_type": "Node2D",
+        "root_name": "City",
+        "save_path": "res://scenes/city.tscn",
+        "children": [{"node_type": "Node2D", "node_name": "Plaza", "properties": {"position": [1, 2]}}],
+    }
+
+
+@pytest.mark.anyio
+async def test_create_scene_omits_empty_children(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("create_scene", {"root_type": "Node", "root_name": "X", "save_path": "res://x.tscn"})
+    assert captured["args"] == {"root_type": "Node", "root_name": "X", "save_path": "res://x.tscn"}
+
+
+@pytest.mark.anyio
 async def test_tools_are_listed() -> None:
     async with Client(mcp) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
@@ -303,6 +346,7 @@ async def test_tools_are_listed() -> None:
         "tree_add",
         "tree_remove",
         "tree_move",
+        "create_scene",
         "log_read",
         "log_probe",
     }

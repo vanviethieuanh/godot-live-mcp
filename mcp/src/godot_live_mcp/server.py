@@ -138,6 +138,20 @@ def tree_remove(path: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def create_scene(
+    root_type: str,
+    root_name: str,
+    save_path: str,
+    children: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a complete new scene in-memory from a declarative spec and save it to `save_path` as a .tscn, then return the serialized tree. Detached from the currently edited scene (no new-scene editor entry): it does not become the active scene and is not undoable. `children` is a nested list of `{"node_type", "node_name", "properties"?, "children"?}` dicts (properties follow the same values as `tree_set`). Overwrites an existing file at `save_path`."""
+    args: dict[str, Any] = {"root_type": root_type, "root_name": root_name, "save_path": save_path}
+    if children:
+        args["children"] = children
+    return _bridge("create_scene", args)
+
+
+@mcp.tool()
 def tree_move(path: str, parent_path: str = "/", index: int | None = None) -> dict[str, Any]:
     """Reparent the node at `path` under `parent_path`, optionally at child `index`. Undoable and marks the scene unsaved."""
     args: dict[str, Any] = {"path": path, "parent_path": parent_path}

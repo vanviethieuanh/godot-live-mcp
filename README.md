@@ -73,6 +73,7 @@ flowchart LR
 | `godot-live_tree_add` | `parent_path node_type node_name properties?` | Add a node (undoable, marks scene unsaved) |
 | `godot-live_tree_remove` | `path` | Remove a node (undoable, marks scene unsaved) |
 | `godot-live_tree_move` | `path parent_path index?` | Reparent/reorder a node (undoable, marks scene unsaved) |
+| `godot-live_create_scene` | `root_type root_name save_path children?` | Build a whole scene in-memory from a declarative nested spec and save it to a `.tscn`; detached (no new-scene editor entry), returns the serialized tree |
 | `godot-live_log_read` | `since? limit?` | Delta-read captured `print`/`push_error`/`push_warning` output (Godot >= 4.5; see below) |
 | `godot-live_log_probe` | `message? level?` | Emit a std output/error log from the editor process to test `log_read` capture |
 
@@ -82,6 +83,14 @@ automatically mark the scene unsaved. Agent-made mutations are tagged in the
 undo **History panel** with a prefix (default `[agent] Add SmokeTestNode`),
 configurable via Editor Settings → `addons/godot_tree/agent_undo_prefix`
 (empty string disables the tag).
+
+`create_scene` is the exception: it builds a new scene **detached** from the
+currently edited scene (in-memory, saved straight to disk via `ResourceSaver`),
+so it is *not* undoable, does *not* mark a scene unsaved, and is not opened as a
+new editor scene (there is no new-scene entry point) — open the saved `.tscn`
+with File > Open. `children` is a nested list of
+`{"node_type", "node_name", "properties"?, "children"?}` dicts; properties use
+the same values as `tree_set`.
 
 Env vars (optional): `GODOT_TREE_HOST` (default `127.0.0.1`),
 `GODOT_TREE_PORT` (default `41234`, must match the addon's Editor Setting),
@@ -109,6 +118,7 @@ godot --headless -s addons/godot_tree/tree_cli.gd -- props /City/Office 0
 godot --headless -s addons/godot_tree/tree_cli.gd -- inspect /City/Chapel 8
 godot --headless -s addons/godot_tree/tree_cli.gd -- set /City/Office visible --value false
 godot --headless -s addons/godot_tree/tree_cli.gd -- add /City Node2D Office --properties '{"position": [10, 20]}'
+godot --headless -s addons/godot_tree/tree_cli.gd -- create_scene Node2D City res://scenes/city.tscn --children '[{"node_type":"Node2D","node_name":"Plaza"}]'
 godot --headless -s addons/godot_tree/tree_cli.gd -- move /City/Office /
 godot --headless -s addons/godot_tree/tree_cli.gd -- remove /City/Office
 ```

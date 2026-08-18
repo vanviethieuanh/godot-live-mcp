@@ -8,6 +8,7 @@ extends SceneTree
 ##      inspect <path> | find [--path P] [--type T] [--name N] [--script S] [--has-prop P] |
 ##      set <path> <property> [--value <json>] |
 ##      add <parent> <type> <name> [--properties <json>] |
+##      create_scene <root_type> <root_name> <save_path> [--children <json>] |
 ##      remove <path> | move <path> <new-parent> [--index N]
 
 const DEFAULT_HOST := "127.0.0.1"
@@ -97,7 +98,7 @@ func _parse_args() -> void:
 				if i + 1 < args.size():
 					_timeout_ms = int(args[i + 1])
 					i += 1
-			"--path", "--type", "--name", "--script", "--has-prop", "--path-pattern", "--properties", "--index", "--value":
+			"--path", "--type", "--name", "--script", "--has-prop", "--path-pattern", "--properties", "--index", "--value", "--children":
 				if i + 1 < args.size():
 					_filters[arg.trim_prefix("--").replace("-", "_")] = args[i + 1]
 					i += 1
@@ -143,6 +144,14 @@ func _build_request() -> Dictionary:
 				var parsed_props: Variant = JSON.parse_string(_filters["properties"] as String)
 				if parsed_props is Dictionary:
 					args["properties"] = parsed_props
+		"create_scene":
+			args["root_type"] = _op_args[0] if _op_args.size() > 0 else ""
+			args["root_name"] = _op_args[1] if _op_args.size() > 1 else ""
+			args["save_path"] = _op_args[2] if _op_args.size() > 2 else ""
+			if _filters.has("children"):
+				var parsed_children: Variant = JSON.parse_string(_filters["children"] as String)
+				if parsed_children is Array:
+					args["children"] = parsed_children
 		"remove":
 			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
 		"move":
