@@ -15,6 +15,7 @@ const HANDLER_MODULES: Array = [
 	preload("res://addons/godot_tree/handlers/handler_tree_read.gd"),
 	preload("res://addons/godot_tree/handlers/handler_tree_write.gd"),
 	preload("res://addons/godot_tree/handlers/handler_uid.gd"),
+	preload("res://addons/godot_tree/handlers/handler_project.gd"),
 ]
 const MAX_READS_PER_FRAME: int = 256
 

@@ -78,6 +78,7 @@ flowchart LR
 | `godot-live_log_probe` | `message? level?` | Emit a std output/error log from the editor process to test `log_read` capture |
 | `godot-live_get_uid` | `path? uid?` | Look up a resource UID (Godot 4.4+): pass a `res://` path or a `uid://` string; returns `{"path", "uid"}` for either direction |
 | `godot-live_update_project_uids` | `dry_run?` | Assign a UID to every project resource that lacks one, persisting `.uid` files (Godot 4.4+); mirrors Project > Tools > "Update UIDs". `dry_run` previews without writing |
+| `godot-live_project_get_setting` | `path` | Read a project setting from the live editor's `project.godot`. `path` is either exact (e.g. `application/config/name`, returns `{"path", "value"}`) or a simple filter — a prefix or `*` glob (e.g. `application/*`, returns `{"path", "count", "settings"}` for every match) |
 
 Read ops map to the bridge 1:1; mutation ops go through the editor's
 `EditorUndoRedoManager`, so they're **undoable in the editor** (Ctrl+Z) and
@@ -93,6 +94,12 @@ new editor scene (there is no new-scene entry point) — open the saved `.tscn`
 with File > Open. `children` is a nested list of
 `{"node_type", "node_name", "properties"?, "children"?}` dicts; properties use
 the same values as `tree_set`.
+
+> **Project settings are read-only for now.** `project_get_setting` can *read*
+> any setting, but writing settings (`project_set_setting`) is intentionally
+> **not implemented**: mutating `project.godot` is easy to get wrong and can
+> corrupt the project, so it is left out until a safe, auditable write path
+> (e.g. review/undo of agent changes) is designed. Use the editor for edits.
 
 Env vars (optional): `GODOT_TREE_HOST` (default `127.0.0.1`),
 `GODOT_TREE_PORT` (default `41234`, must match the addon's Editor Setting),

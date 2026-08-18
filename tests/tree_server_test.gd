@@ -114,6 +114,9 @@ func _build_requests() -> void:
 		{"id": 26, "op": "get_uid", "args": {"uid": "res://not_a_uid"}},
 		{"id": 27, "op": "get_uid", "args": {"uid": "uid://doesnotexist"}},
 		{"id": 28, "op": "update_project_uids", "args": {"dry_run": true}},
+		{"id": 29, "op": "get_setting", "args": {"path": "application/config/name"}},
+		{"id": 30, "op": "get_setting", "args": {"path": "application/*"}},
+		{"id": 31, "op": "get_setting", "args": {"path": "definitely/missing/setting"}},
 	]
 
 
@@ -258,6 +261,23 @@ func _handle_response(line: String) -> void:
 				_failed = true
 			elif not stats.has("scanned") or not stats.has("generated"):
 				push_error("FAIL: update_project_uids stats %s" % JSON.stringify(stats))
+				_failed = true
+		29:
+			var s29: Dictionary = resp.get("result")
+			if not bool(resp.get("ok", false)) or str(s29.get("path", "")) != "application/config/name" \
+					or not s29.has("value"):
+				push_error("FAIL: get_setting exact %s" % JSON.stringify(resp))
+				_failed = true
+		30:
+			var s30: Dictionary = resp.get("result")
+			if not bool(resp.get("ok", false)) or int(s30.get("count", 0)) < 1 \
+					or not (s30.get("settings") is Dictionary):
+				push_error("FAIL: get_setting glob %s" % JSON.stringify(resp))
+				_failed = true
+		31:
+			var s31: Dictionary = resp.get("result")
+			if not bool(resp.get("ok", false)) or int(s31.get("count", -1)) != 0:
+				push_error("FAIL: get_setting no match should return empty settings %s" % JSON.stringify(resp))
 				_failed = true
 		_:
 			push_error("FAIL: unexpected response id %d" % req_id)

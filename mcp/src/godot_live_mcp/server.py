@@ -178,5 +178,11 @@ def update_project_uids(dry_run: bool = False) -> dict[str, Any]:
     return _bridge("update_project_uids", args)
 
 
+@mcp.tool()
+def project_get_setting(path: str) -> dict[str, Any]:
+    """Read a project setting from the live editor's project.godot. `path` is either an exact setting name (e.g. "application/config/name", returns `{"path", "value"}`) or a simple filter — a prefix or `*` glob (e.g. "application/*", returns `{"path", "count", "settings"}` for every match). Writing settings (project_set_setting) is intentionally not implemented (unsafe to mutate project.godot)."""
+    return _bridge("get_setting", {"path": path})
+
+
 def main() -> None:
     mcp.run()

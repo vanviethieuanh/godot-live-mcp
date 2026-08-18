@@ -403,6 +403,22 @@ async def test_update_project_uids_defaults(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.anyio
+async def test_project_get_setting_exact(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"path": "application/config/name", "value": "my-project"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("project_get_setting", {"path": "application/config/name"})
+    assert captured == {"op": "get_setting", "args": {"path": "application/config/name"}}
+    assert result.structured_content == {"path": "application/config/name", "value": "my-project"}
+
+
+@pytest.mark.anyio
 async def test_tools_are_listed() -> None:
     async with Client(mcp) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
@@ -425,4 +441,5 @@ async def test_tools_are_listed() -> None:
         "log_probe",
         "get_uid",
         "update_project_uids",
+        "project_get_setting",
     }
