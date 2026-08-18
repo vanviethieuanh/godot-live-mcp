@@ -29,6 +29,7 @@ func _process(_delta: float) -> bool:
 			var scene := _build_scene()
 			_server = Server.new()
 			_server.root_provider = func() -> Node: return scene
+			_server.undo_redo_provider = func() -> Variant: return UndoRedo.new()
 			_server.port = TEST_PORT
 			root.add_child(_server)
 			var err: int = _server.start()
@@ -87,6 +88,14 @@ func _build_requests() -> void:
 		{"id": 7, "op": "find", "args": {"type": "Node2D"}},
 		{"id": 8, "op": "query", "args": {"path": "/Missing"}},
 		{"id": 9, "op": "bogus", "args": {}},
+		{"id": 10, "op": "add", "args": {"parent_path": "/", "node_type": "Node2D", "node_name": "NewNode"}},
+		{"id": 11, "op": "query", "args": {"path": "/NewNode"}},
+		{"id": 12, "op": "set", "args": {"path": "/Building", "property": "position", "value": [10.0, 20.0]}},
+		{"id": 13, "op": "props", "args": {"path": "/Building"}},
+		{"id": 14, "op": "move", "args": {"path": "/Agent", "parent_path": "/Building"}},
+		{"id": 15, "op": "query", "args": {"path": "/Building/Agent"}},
+		{"id": 16, "op": "remove", "args": {"path": "/NewNode"}},
+		{"id": 17, "op": "query", "args": {"path": "/NewNode"}},
 	]
 
 
@@ -144,6 +153,38 @@ func _handle_response(line: String) -> void:
 		9:
 			if bool(resp.get("ok", true)) or str(resp.get("error", "")).is_empty():
 				push_error("FAIL: unknown op should error")
+				_failed = true
+		10:
+			if not bool(resp.get("ok", false)):
+				push_error("FAIL: add: %s" % str(resp.get("error", "")))
+				_failed = true
+		11:
+			if str((resp.get("result") as Dictionary).class) != "Node2D":
+				push_error("FAIL: add visible via query: %s" % str(resp.get("result")))
+				_failed = true
+		12:
+			if not bool(resp.get("ok", false)):
+				push_error("FAIL: set: %s" % str(resp.get("error", "")))
+				_failed = true
+		13:
+			if not str(resp.get("result", {}).get("position", "")).contains("10, 20"):
+				push_error("FAIL: set visible via props: %s" % str(resp.get("result")))
+				_failed = true
+		14:
+			if not bool(resp.get("ok", false)):
+				push_error("FAIL: move: %s" % str(resp.get("error", "")))
+				_failed = true
+		15:
+			if not bool(resp.get("ok", false)) or str((resp.get("result") as Dictionary).name) != "Agent":
+				push_error("FAIL: move visible via query: %s" % str(resp.get("result")))
+				_failed = true
+		16:
+			if not bool(resp.get("ok", false)):
+				push_error("FAIL: remove: %s" % str(resp.get("error", "")))
+				_failed = true
+		17:
+			if bool(resp.get("ok", true)) or str(resp.get("error", "")).is_empty():
+				push_error("FAIL: removed node should be gone")
 				_failed = true
 		_:
 			push_error("FAIL: unexpected response id %d" % req_id)

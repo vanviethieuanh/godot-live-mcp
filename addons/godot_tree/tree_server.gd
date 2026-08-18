@@ -7,9 +7,11 @@ extends Node
 ## in-memory scene is always the source of truth.
 
 const TreeEngineScript := preload("res://addons/godot_tree/tree_engine.gd")
+const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
 const MAX_READS_PER_FRAME: int = 256
 
 var root_provider: Callable = Callable()
+var undo_redo_provider: Callable = Callable()
 var port: int = 41234
 var bind_address: String = "127.0.0.1"
 
@@ -135,6 +137,14 @@ func _dispatch(op: String, args: Dictionary) -> Array:
 				if args.has(key):
 					filters[key] = str(args[key])
 			return ["", TreeEngineScript.find_nodes(search_root, filters)]
+		"set":
+			return TreeMutatorScript.set_property(root, _undo_redo(), args)
+		"add":
+			return TreeMutatorScript.add(root, _undo_redo(), args)
+		"remove":
+			return TreeMutatorScript.remove(root, _undo_redo(), args)
+		"move":
+			return TreeMutatorScript.move(root, _undo_redo(), args)
 		_:
 			if op not in ["query", "children", "props", "inspect"]:
 				return ["unknown op: %s" % op, null]
@@ -151,6 +161,14 @@ func _dispatch(op: String, args: Dictionary) -> Array:
 				"inspect":
 					return ["", TreeEngineScript.inspect(node)]
 	return ["unknown op: %s" % op, null]
+
+
+func _undo_redo() -> Variant:
+	if undo_redo_provider.is_valid():
+		var ur: Variant = undo_redo_provider.call()
+		if ur != null:
+			return ur
+	return UndoRedo.new()
 
 
 func _scene_info(root: Node) -> Dictionary:

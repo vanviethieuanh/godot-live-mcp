@@ -2,16 +2,21 @@
 extends EditorPlugin
 
 const TreeServerScript := preload("res://addons/godot_tree/tree_server.gd")
+const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
 const TreeDockScript := preload("res://addons/godot_tree/tree_dock.gd")
 const PORT_SETTING := "addons/godot_tree/port"
+const AGENT_PREFIX_SETTING := "addons/godot_tree/agent_undo_prefix"
+const DEFAULT_AGENT_PREFIX := "[agent] "
 
 var _server: TreeServerScript = null
 var _dock: EditorDock = null
 
 
 func _enter_tree() -> void:
+	TreeMutatorScript.agent_action_prefix = _agent_prefix()
 	_server = TreeServerScript.new()
 	_server.root_provider = Callable(self, "_edited_scene_root")
+	_server.undo_redo_provider = Callable(self, "_undo_manager")
 	_server.port = _bridge_port()
 	add_child(_server)
 	_server.start()
@@ -52,8 +57,19 @@ func _bridge_port() -> int:
 	return 41234
 
 
+func _agent_prefix() -> String:
+	var settings := EditorInterface.get_editor_settings()
+	if settings != null and settings.has_setting(AGENT_PREFIX_SETTING):
+		return str(settings.get_setting(AGENT_PREFIX_SETTING))
+	return DEFAULT_AGENT_PREFIX
+
+
 func _edited_scene_root() -> Node:
 	return get_editor_interface().get_edited_scene_root()
+
+
+func _undo_manager() -> Variant:
+	return get_editor_interface().get_editor_undo_redo()
 
 
 func _refresh_dock(_arg: Variant = null) -> void:

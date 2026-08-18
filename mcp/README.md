@@ -18,6 +18,15 @@ Built with the official [MCP Python SDK](https://github.com/modelcontextprotocol
 | `tree_props` | `path` | `props` |
 | `tree_find` | `path? type? name? script? has_prop?` | `find` |
 | `tree_inspect` | `path` | `inspect` |
+| `tree_set` | `path property value` | `set` |
+| `tree_add` | `parent_path node_type node_name properties?` | `add` |
+| `tree_remove` | `path` | `remove` |
+| `tree_move` | `path parent_path index?` | `move` |
+
+Mutations go through the editor's `EditorUndoRedoManager` (undoable with
+Ctrl+Z, and the scene is automatically marked unsaved). Agent-made mutations
+are tagged in the editor's History panel with `[agent]` (configurable via
+Editor Settings → `addons/godot_tree/agent_undo_prefix`).
 
 In opencode the tools are prefixed with the server name: `godot-live_tree_query`, etc.
 

@@ -79,5 +79,40 @@ def tree_inspect(path: str = "/") -> dict[str, Any]:
     return _bridge("inspect", {"path": path})
 
 
+@mcp.tool()
+def tree_set(path: str, property: str, value: Any = None) -> dict[str, Any]:
+    """Set `property` on the node at `path`. Undoable and marks the scene unsaved. `value` accepts scalars, arrays for vectors/colors, or res:// paths for resources."""
+    return _bridge("set", {"path": path, "property": property, "value": value})
+
+
+@mcp.tool()
+def tree_add(
+    parent_path: str = "/",
+    node_type: str = "",
+    node_name: str = "",
+    properties: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Add a node of `node_type` named `node_name` under `parent_path`, optionally applying `properties`. Undoable and marks the scene unsaved."""
+    args: dict[str, Any] = {"parent_path": parent_path, "node_type": node_type, "node_name": node_name}
+    if properties:
+        args["properties"] = properties
+    return _bridge("add", args)
+
+
+@mcp.tool()
+def tree_remove(path: str) -> dict[str, Any]:
+    """Remove the node at `path`. Undoable and marks the scene unsaved."""
+    return _bridge("remove", {"path": path})
+
+
+@mcp.tool()
+def tree_move(path: str, parent_path: str = "/", index: int | None = None) -> dict[str, Any]:
+    """Reparent the node at `path` under `parent_path`, optionally at child `index`. Undoable and marks the scene unsaved."""
+    args: dict[str, Any] = {"path": path, "parent_path": parent_path}
+    if index is not None:
+        args["index"] = index
+    return _bridge("move", args)
+
+
 def main() -> None:
     mcp.run()

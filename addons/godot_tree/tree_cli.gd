@@ -4,7 +4,10 @@ extends SceneTree
 ## running editor's TreeServer over loopback TCP and prints the result.
 ## Run: godot --headless -s addons/godot_tree/tree_cli.gd -- [--port N] [--host H] <op> [args]
 ## Ops: ping | scene | query <path> | children <path> | props <path> |
-##      inspect <path> | find [--path P] [--type T] [--name N] [--script S] [--has-prop P]
+##      inspect <path> | find [--path P] [--type T] [--name N] [--script S] [--has-prop P] |
+##      set <path> <property> [--value <json>] |
+##      add <parent> <type> <name> [--properties <json>] |
+##      remove <path> | move <path> <new-parent> [--index N]
 
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 41234
@@ -93,7 +96,7 @@ func _parse_args() -> void:
 				if i + 1 < args.size():
 					_timeout_ms = int(args[i + 1])
 					i += 1
-			"--path", "--type", "--name", "--script", "--has-prop":
+			"--path", "--type", "--name", "--script", "--has-prop", "--properties", "--index", "--value":
 				if i + 1 < args.size():
 					_filters[arg.trim_prefix("--")] = args[i + 1]
 					i += 1
@@ -118,6 +121,30 @@ func _build_request() -> Dictionary:
 			for key: String in ["path", "type", "name", "script", "has_prop"]:
 				if _filters.has(key):
 					args[key] = _filters[key]
+		"set":
+			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+			args["property"] = _op_args[1] if _op_args.size() > 1 else ""
+			if _filters.has("value"):
+				var raw_value := _filters["value"] as String
+				var parsed_value: Variant = JSON.parse_string(raw_value)
+				args["value"] = parsed_value if parsed_value != null else raw_value
+			else:
+				args["value"] = null
+		"add":
+			args["parent_path"] = _op_args[0] if _op_args.size() > 0 else "/"
+			args["node_type"] = _op_args[1] if _op_args.size() > 1 else ""
+			args["node_name"] = _op_args[2] if _op_args.size() > 2 else ""
+			if _filters.has("properties"):
+				var parsed_props: Variant = JSON.parse_string(_filters["properties"] as String)
+				if parsed_props is Dictionary:
+					args["properties"] = parsed_props
+		"remove":
+			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+		"move":
+			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
+			args["parent_path"] = _op_args[1] if _op_args.size() > 1 else "/"
+			if _filters.has("index"):
+				args["index"] = int(_filters["index"] as String)
 	return {"id": 1, "op": _op, "args": args}
 
 

@@ -67,6 +67,17 @@ flowchart LR
 | `godot-live_tree_props` | `path` | Exported (editor-visible) properties |
 | `godot-live_tree_find` | `path? type? name? script? has_prop?` | Filtered search (`name`/`script` accept globs) |
 | `godot-live_tree_inspect` | `path` | Semantic output via `agent_inspect()` |
+| `godot-live_tree_set` | `path property value` | Set a property (undoable, marks scene unsaved) |
+| `godot-live_tree_add` | `parent_path node_type node_name properties?` | Add a node (undoable, marks scene unsaved) |
+| `godot-live_tree_remove` | `path` | Remove a node (undoable, marks scene unsaved) |
+| `godot-live_tree_move` | `path parent_path index?` | Reparent/reorder a node (undoable, marks scene unsaved) |
+
+Read ops map to the bridge 1:1; mutation ops go through the editor's
+`EditorUndoRedoManager`, so they're **undoable in the editor** (Ctrl+Z) and
+automatically mark the scene unsaved. Agent-made mutations are tagged in the
+undo **History panel** with a prefix (default `[agent] Add SmokeTestNode`),
+configurable via Editor Settings → `addons/godot_tree/agent_undo_prefix`
+(empty string disables the tag).
 
 Env vars (optional): `GODOT_TREE_HOST` (default `127.0.0.1`),
 `GODOT_TREE_PORT` (default `41234`, must match the addon's Editor Setting),
@@ -89,6 +100,10 @@ godot --headless -s addons/godot_tree/tree_cli.gd -- find --type Node2D
 godot --headless -s addons/godot_tree/tree_cli.gd -- find --name "Office*"
 godot --headless -s addons/godot_tree/tree_cli.gd -- props /City/Office 0
 godot --headless -s addons/godot_tree/tree_cli.gd -- inspect /City/Chapel 8
+godot --headless -s addons/godot_tree/tree_cli.gd -- set /City/Office visible --value false
+godot --headless -s addons/godot_tree/tree_cli.gd -- add /City Node2D Office --properties '{"position": [10, 20]}'
+godot --headless -s addons/godot_tree/tree_cli.gd -- move /City/Office /
+godot --headless -s addons/godot_tree/tree_cli.gd -- remove /City/Office
 ```
 
 Port override: Editor Settings → `addons/godot_tree/port`, or restart the
@@ -99,6 +114,7 @@ bridge from the dock ("Port..." button). Nodes that implement
 
 ```sh
 godot --headless -s tests/tree_engine_test.gd   # query core (GDScript)
+godot --headless -s tests/tree_mutator_test.gd  # mutation core: set/add/remove/move (GDScript)
 godot --headless -s tests/tree_server_test.gd   # TCP round trip + lifecycle (GDScript)
 godot --headless -s tests/tree_dock_test.gd     # dock status smoke test (GDScript)
 uv run --directory mcp pytest                   # MCP server (Python, fake TCP)
@@ -114,8 +130,9 @@ Newline-delimited JSON over TCP. Request:
 
 Response: `{"id": 1, "ok": true, "result": {...}}` or `{"id": 1, "ok": false, "error": "..."}`.
 
-Ops: `ping`, `scene`, `query`, `children`, `props`, `find`, `inspect`.
+Ops: `ping`, `scene`, `query`, `children`, `props`, `find`, `inspect`, `set`, `add`, `remove`, `move`.
 
 ## Next steps
 
-- Mutations (`set`/`add`/`remove`) via `EditorUndoRedoManager` + `mark_scene_as_unsaved()`, exposed through the MCP server as `tree_set`/`tree_add`/`tree_remove`.
+- Script attachment (`attach_script`) and set-main-scene.
+- Scene save/load ops (`save_scene`) to persist mutations to disk.

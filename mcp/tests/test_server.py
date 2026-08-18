@@ -90,8 +90,78 @@ async def test_bridge_error_surfaces(monkeypatch: pytest.MonkeyPatch) -> None:
     async with Client(mcp) as client:
         result = await client.call_tool("tree_query", {"path": "/Nope"})
     assert result.is_error
-    text = "".join(str(part.text) for part in result.content if getattr(part, "type", "") == "text")
+    text = "".join(part.text for part in result.content if part.type == "text")
     assert "node not found" in text
+
+
+@pytest.mark.anyio
+async def test_tree_set_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"path": "/Node", "property": "position", "value": "(10, 20)"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("tree_set", {"path": "/Node", "property": "position", "value": [10, 20]})
+    assert captured == {"op": "set", "args": {"path": "/Node", "property": "position", "value": [10, 20]}}
+    assert result.structured_content == {"path": "/Node", "property": "position", "value": "(10, 20)"}
+
+
+@pytest.mark.anyio
+async def test_tree_add_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {"path": "/City"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "tree_add",
+            {"parent_path": "/", "node_type": "Node2D", "node_name": "City", "properties": {"position": [1, 2]}},
+        )
+    assert captured["args"] == {
+        "parent_path": "/",
+        "node_type": "Node2D",
+        "node_name": "City",
+        "properties": {"position": [1, 2]},
+    }
+
+
+@pytest.mark.anyio
+async def test_tree_add_omits_empty_properties(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("tree_add", {"node_type": "Node", "node_name": "X"})
+    assert captured["args"] == {"parent_path": "/", "node_type": "Node", "node_name": "X"}
+
+
+@pytest.mark.anyio
+async def test_tree_remove_and_move(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[Any] = []
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured.append((op, args))
+        return {"path": "/Node"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("tree_remove", {"path": "/Node"})
+        await client.call_tool("tree_move", {"path": "/Node", "parent_path": "/City", "index": 2})
+    assert captured == [
+        ("remove", {"path": "/Node"}),
+        ("move", {"path": "/Node", "parent_path": "/City", "index": 2}),
+    ]
 
 
 @pytest.mark.anyio
@@ -106,4 +176,8 @@ async def test_tools_are_listed() -> None:
         "tree_props",
         "tree_find",
         "tree_inspect",
+        "tree_set",
+        "tree_add",
+        "tree_remove",
+        "tree_move",
     }
