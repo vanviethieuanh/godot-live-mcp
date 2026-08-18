@@ -16,6 +16,10 @@ var modified_provider: Callable = Callable()
 var port: int = 41234
 var bind_address: String = "127.0.0.1"
 
+## Optional LogBuffer fed by the plugin's CaptureLogger (Godot >= 4.5). When
+## null the "log" op reports logging unavailable instead of erroring.
+var log_buffer: RefCounted = null
+
 var _tcp: TCPServer = null
 var _conn: StreamPeerTCP = null
 var _buffer: String = ""
@@ -131,6 +135,15 @@ func _dispatch(op: String, args: Dictionary) -> Array:
 			return ["", _scene_info(root)]
 		"editor":
 			return ["", _editor_info(root)]
+		"log":
+			if log_buffer == null:
+				return ["logging not available (requires Godot >= 4.5)", null]
+			var since := int(args.get("since", 0))
+			var limit := int(args.get("limit", 0))
+			return ["", log_buffer.call("read_since", since, maxi(limit, 0))]
+		"log_probe":
+			_emit_probe(str(args.get("message", "probe")), str(args.get("level", "info")))
+			return ["", {"ok": true}]
 		"tree":
 			var tree_root: Node = TreeEngineScript.resolve(root, str(args.get("path", "/")))
 			if tree_root == null:
@@ -179,6 +192,19 @@ func _undo_redo() -> Variant:
 		if ur != null:
 			return ur
 	return UndoRedo.new()
+
+
+## Emit a std output/error log from the editor process for testing log_read.
+## print()/push_error()/push_warning() go through the global logger stream, so
+## the CaptureLogger captures them and they show up on the next log_read.
+func _emit_probe(message: String, level: String) -> void:
+	match level:
+		"error":
+			push_error("[GodotTree probe] %s" % message)
+		"warning":
+			push_warning("[GodotTree probe] %s" % message)
+		_:
+			print("[GodotTree probe] %s" % message)
 
 
 func _scene_info(root: Node) -> Dictionary:

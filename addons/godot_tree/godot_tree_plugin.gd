@@ -4,6 +4,7 @@ extends EditorPlugin
 const TreeServerScript := preload("res://addons/godot_tree/tree_server.gd")
 const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
 const TreeDockScript := preload("res://addons/godot_tree/tree_dock.gd")
+const TreeLogScript := preload("res://addons/godot_tree/tree_logger.gd")
 const PORT_SETTING := "addons/godot_tree/port"
 const AGENT_PREFIX_SETTING := "addons/godot_tree/agent_undo_prefix"
 const DEFAULT_AGENT_PREFIX := "[agent] "
@@ -11,6 +12,8 @@ const DEFAULT_AGENT_PREFIX := "[agent] "
 var _server: TreeServerScript = null
 var _dock: Variant = null
 var _saved_version := -1
+var _log_buffer: Variant = null
+var _capture_logger: Variant = null
 
 
 func _enter_tree() -> void:
@@ -20,6 +23,7 @@ func _enter_tree() -> void:
 	_server.undo_redo_provider = Callable(self, "_undo_manager")
 	_server.modified_provider = Callable(self, "_scene_modified")
 	_server.port = _bridge_port()
+	_setup_logger()
 	add_child(_server)
 	_server.start()
 	_reset_saved_version()
@@ -29,15 +33,16 @@ func _enter_tree() -> void:
 	else:
 		print("[GodotTree] EditorDock unavailable (Godot < 4.5); running bridge-only")
 
-	scene_changed.connect(func(_path: String) -> void: _reset_saved_version())
+	scene_changed.connect(func(_path) -> void: _reset_saved_version())
 	scene_changed.connect(_refresh_dock)
-	scene_closed.connect(func(_path: String) -> void: _reset_saved_version())
-	scene_closed.connect(func(_path: String) -> void: _refresh_dock())
-	scene_saved.connect(func(_path: String) -> void: _reset_saved_version())
-	scene_saved.connect(func(_path: String) -> void: _refresh_dock())
+	scene_closed.connect(func(_path) -> void: _reset_saved_version())
+	scene_closed.connect(func(_path) -> void: _refresh_dock())
+	scene_saved.connect(func(_path) -> void: _reset_saved_version())
+	scene_saved.connect(func(_path) -> void: _refresh_dock())
 
 
 func _exit_tree() -> void:
+	_teardown_logger()
 	if _dock != null:
 		remove_dock(_dock)
 		remove_tool_menu_item("Scene Tree")
@@ -51,6 +56,29 @@ func _exit_tree() -> void:
 
 func _has_editor_dock() -> bool:
 	return ClassDB.class_exists("EditorDock")
+
+
+## Register a capture logger (Godot >= 4.5) that feeds the bridge's log buffer.
+## The inner CaptureLogger extends Logger, which only exists on 4.5+, so the
+## class is only touched here when it is known to be available.
+func _setup_logger() -> void:
+	if not ClassDB.class_exists("Logger") or not OS.has_method("add_logger") or not OS.has_method("remove_logger"):
+		print("[GodotTree] log capture unavailable (requires Godot >= 4.5); running without log_read")
+		return
+	_log_buffer = TreeLogScript.new()
+	_capture_logger = TreeLogScript.CaptureLogger.new()
+	_capture_logger.buffer = _log_buffer
+	_server.log_buffer = _log_buffer
+	OS.add_logger(_capture_logger)
+	print("[GodotTree] log capture active (print/push_error/push_warning)")
+
+
+func _teardown_logger() -> void:
+	if _capture_logger != null:
+		if OS.has_method("remove_logger"):
+			OS.remove_logger(_capture_logger)
+		_capture_logger = null
+	_log_buffer = null
 
 
 func _create_dock() -> void:

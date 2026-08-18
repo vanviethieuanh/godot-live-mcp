@@ -41,6 +41,20 @@ def tree_editor() -> dict[str, Any]:
 
 
 @mcp.tool()
+def log_read(since: int = 0, limit: int = 0) -> dict[str, Any]:
+    """Return captured engine log messages newer than sequence number `since` (start at 0 for everything buffered). Each entry has `seq`, `level` (info/warning/error), and `message`. Delta-based: pass back the returned `seq` as the next `since`. `limit` caps how many entries are returned (0 = unlimited). Requires Godot >= 4.5."""
+    args: dict[str, Any] = {"since": since, "limit": limit}
+    return _bridge("log", args)
+
+
+@mcp.tool()
+def log_probe(message: str = "probe", level: str = "info") -> dict[str, Any]:
+    """Emit a standard output/error log from the editor process (`print`/`push_error`/`push_warning`) so it can be observed via `log_read`. Useful for testing log capture. `level` is `info`, `warning`, or `error`."""
+    args: dict[str, Any] = {"message": message, "level": level}
+    return _bridge("log_probe", args)
+
+
+@mcp.tool()
 def tree_dump(path: str = "/", depth: int = 2) -> dict[str, Any]:
     """Return a nested dump of the scene tree under `path`, up to `depth` levels deep (0 = node only)."""
     return _bridge("tree", {"path": path, "depth": depth})

@@ -73,6 +73,8 @@ flowchart LR
 | `godot-live_tree_add` | `parent_path node_type node_name properties?` | Add a node (undoable, marks scene unsaved) |
 | `godot-live_tree_remove` | `path` | Remove a node (undoable, marks scene unsaved) |
 | `godot-live_tree_move` | `path parent_path index?` | Reparent/reorder a node (undoable, marks scene unsaved) |
+| `godot-live_log_read` | `since? limit?` | Delta-read captured `print`/`push_error`/`push_warning` output (Godot >= 4.5; see below) |
+| `godot-live_log_probe` | `message? level?` | Emit a std output/error log from the editor process to test `log_read` capture |
 
 Read ops map to the bridge 1:1; mutation ops go through the editor's
 `EditorUndoRedoManager`, so they're **undoable in the editor** (Ctrl+Z) and
@@ -136,6 +138,36 @@ The editor **dock** uses `EditorDock`, which only exists in Godot **4.5+**; on
 earlier versions the plugin falls back to **bridge-only** (the dock is skipped,
 everything else — TCP bridge, CLI, MCP tools — still works). The plugin is
 developed against `config/features=PackedStringArray("4.7")`.
+
+**Log capture** (`log_read`) requires Godot **4.5+**, since it uses the
+`Logger`/`OS.add_logger()` API. On older versions the bridge simply reports
+`logging not available`; the rest of the plugin is unaffected.
+
+### Log reading (`godot-live_log_read`)
+
+The plugin registers a custom `Logger` that captures `print` (info),
+`push_error` (error), and `push_warning` (warning) into a **bounded ring buffer**
+(max 2000 entries) inside the running editor. Reads are **delta-based**: call
+with `since` = the last `seq` you saw (0 = everything currently buffered) and
+you get `{"seq", "base_seq", "entries"}` where `entries` are messages newer than
+`since`; pass the returned `seq` back as the next `since` to tail the log
+efficiently without re-sending history. `limit` caps the response size (0 =
+unlimited). Capture callbacks run on worker threads, so the ring buffer is
+mutex-protected; memory stays bounded regardless of log volume.
+
+To fire a std output/error log on demand for testing, use
+`godot-live_log_probe` (or `{"op":"log_probe","args":{...}}` over the bridge): it
+calls `print()`/`push_error()`/`push_warning()` in the editor process, which the
+capture logger picks up and the next `log_read` returns.
+
+> **Scope (open for development).** Capture is currently limited to the editor
+> process's **standard output/error stream** (`print`/`push_error`/`push_warning`).
+> Two channels are **not** captured yet:
+> - **Editor-internal messages** — the gray lines the editor itself emits to the
+>   Output panel outside the std output stream (e.g. bridge/dock activity).
+> - **Running-game output** — logs from a launched game (F5) relayed via the
+>   debugger protocol, which is a separate channel from the editor's std stream.
+> Capturing these is future work (e.g. an `EditorDebuggerPlugin`).
 
 ## Protocol
 

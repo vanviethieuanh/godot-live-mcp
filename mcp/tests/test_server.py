@@ -223,6 +223,69 @@ async def test_tree_dump(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_log_read_passes_since_and_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"seq": 5, "base_seq": 0, "entries": [{"seq": 4, "level": "info", "message": "hello"}]}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        result = await client.call_tool("log_read", {"since": 3, "limit": 10})
+    assert captured == {"op": "log", "args": {"since": 3, "limit": 10}}
+    assert result.structured_content == {
+        "seq": 5,
+        "base_seq": 0,
+        "entries": [{"seq": 4, "level": "info", "message": "hello"}],
+    }
+
+
+@pytest.mark.anyio
+async def test_log_read_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {"seq": 0, "base_seq": 0, "entries": []}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("log_read", {})
+    assert captured["args"] == {"since": 0, "limit": 0}
+
+
+@pytest.mark.anyio
+async def test_log_probe_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"ok": True}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("log_probe", {"message": "hi", "level": "error"})
+    assert captured == {"op": "log_probe", "args": {"message": "hi", "level": "error"}}
+
+
+@pytest.mark.anyio
+async def test_log_probe_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {"ok": True}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("log_probe", {})
+    assert captured["args"] == {"message": "probe", "level": "info"}
+
+
+@pytest.mark.anyio
 async def test_tools_are_listed() -> None:
     async with Client(mcp) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
@@ -240,4 +303,6 @@ async def test_tools_are_listed() -> None:
         "tree_add",
         "tree_remove",
         "tree_move",
+        "log_read",
+        "log_probe",
     }
