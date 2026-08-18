@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "godot-live": {
+      "type": "local",
+      "command": ["uv", "run", "godot-live-mcp"],
+      "cwd": "mcp",
+      "enabled": true,
+      "timeout": 20000,
+      "environment": {
+        "GODOT_TREE_PORT": "41234"
+      }
+    }
+  }
+}
