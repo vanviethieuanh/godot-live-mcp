@@ -636,4 +636,69 @@ async def test_tools_are_listed() -> None:
         "project_get_setting",
         "set_main_scene",
         "tree_open_scenes",
+        "project_files",
+        "resource_summary",
     }
+
+
+@pytest.mark.anyio
+async def test_project_files_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_request(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        if op == "ping":
+            return {"pong": True, "scene": {"scene_file_path": "res://main.tscn"}}
+        if op == "open_scenes":
+            return {"paths": ["res://main.tscn"], "scenes": {}}
+        if op == "editor":
+            return {"project_path": "/tmp/project"}
+        return None
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        assert cmd[-3] == "project_files"
+        args_json = json.loads(cmd[-1])
+        assert args_json["path"] == "res://scenes"
+        assert args_json["kind"] == "scene"
+        assert args_json["pattern"] == "level*"
+        assert args_json["recursive"] is False
+        assert args_json["limit"] == 10
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"id": 1, "ok": True, "result": {"path": "res://scenes", "count": 0}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(tree_client, "request", fake_request)
+    monkeypatch.setattr(server.subprocess, "run", fake_run)
+    async with Client(mcp) as client:
+        result = await client.call_tool("project_files", {"path": "res://scenes", "kind": "scene", "pattern": "level*", "recursive": False, "limit": 10})
+    assert result.structured_content == {"path": "res://scenes", "count": 0}
+
+
+@pytest.mark.anyio
+async def test_resource_summary_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_request(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        if op == "ping":
+            return {"pong": True, "scene": {"scene_file_path": "res://main.tscn"}}
+        if op == "open_scenes":
+            return {"paths": ["res://main.tscn"], "scenes": {}}
+        if op == "editor":
+            return {"project_path": "/tmp/project"}
+        return None
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        assert cmd[-3] == "resource_summary"
+        args_json = json.loads(cmd[-1])
+        assert args_json["path"] == "res://a.tscn"
+        assert args_json["depth"] == 1
+        assert args_json["include_properties"] is False
+        assert args_json["include_dependencies"] is False
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"id": 1, "ok": True, "result": {"path": "res://a.tscn", "kind": "scene", "nodes": []}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(tree_client, "request", fake_request)
+    monkeypatch.setattr(server.subprocess, "run", fake_run)
+    async with Client(mcp) as client:
+        result = await client.call_tool("resource_summary", {"path": "res://a.tscn", "depth": 1, "include_properties": False, "include_dependencies": False})
+    assert result.structured_content == {"path": "res://a.tscn", "kind": "scene", "nodes": []}

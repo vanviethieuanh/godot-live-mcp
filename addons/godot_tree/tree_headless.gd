@@ -12,6 +12,8 @@ extends SceneTree
 
 const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
 const TreeEngineScript := preload("res://addons/godot_tree/tree_engine.gd")
+const TreeProjectFilesScript := preload("res://addons/godot_tree/tree_project_files.gd")
+const TreeProjectSummaryScript := preload("res://addons/godot_tree/tree_project_summary.gd")
 
 var _scene_path := ""
 var _op := "scene"
@@ -47,6 +49,38 @@ func _parse_args() -> bool:
 				return false
 			i += 2
 			continue
+		if arg == "--path" and i + 1 < args.size():
+			_args["path"] = args[i + 1]
+			i += 2
+			continue
+		if arg == "--kind" and i + 1 < args.size():
+			_args["kind"] = args[i + 1]
+			i += 2
+			continue
+		if arg == "--pattern" and i + 1 < args.size():
+			_args["pattern"] = args[i + 1]
+			i += 2
+			continue
+		if arg == "--depth" and i + 1 < args.size():
+			_args["depth"] = int(args[i + 1])
+			i += 2
+			continue
+		if arg == "--recursive":
+			_args["recursive"] = true
+			i += 1
+			continue
+		if arg == "--no-recursive":
+			_args["recursive"] = false
+			i += 1
+			continue
+		if arg == "--include-dependencies":
+			_args["include_dependencies"] = true
+			i += 1
+			continue
+		if arg == "--no-include-dependencies":
+			_args["include_dependencies"] = false
+			i += 1
+			continue
 		if arg.begins_with("--"):
 			printerr("ERROR: unknown flag: %s" % arg)
 			quit(1)
@@ -54,14 +88,29 @@ func _parse_args() -> bool:
 		positional.append(arg)
 		i += 1
 	if positional.size() < 1:
-		printerr("ERROR: scene_path is required")
+		printerr("ERROR: first positional argument is required (scene_path for scene ops, or operation name)")
 		quit(1)
 		return false
-	_scene_path = positional[0]
-	_op = positional[1] if positional.size() > 1 else "scene"
-	if _args.is_empty() and positional.size() > 2:
-		_build_args_from_positional(positional.slice(2))
+	# Scene ops require a scene path first; resource/project ops may start with the
+	# operation name and omit the scene path entirely.
+	_op = positional[0]
+	if _scene_op_requires_scene(_op):
+		if positional.size() < 2:
+			printerr("ERROR: scene_path is required for %s" % _op)
+			quit(1)
+			return false
+		_scene_path = positional[0]
+		_op = positional[1] if positional.size() > 1 else "scene"
+		if _args.is_empty() and positional.size() > 2:
+			_build_args_from_positional(positional.slice(2))
+	else:
+		if _args.is_empty():
+			_build_args_from_positional(positional.slice(1))
 	return true
+
+
+static func _scene_op_requires_scene(op: String) -> bool:
+	return op not in ["project_files", "resource_summary"]
 
 
 ## Build op args from trailing positional values when --args was not given,
@@ -86,9 +135,19 @@ func _build_args_from_positional(pos: Array[String]) -> void:
 				_args["depth"] = int(pos[1])
 		"move":
 			_args["parent_path"] = pos[1] if pos.size() > 1 else "/"
+		"project_files":
+			if pos.size() > 0:
+				_args["path"] = pos[0]
+		"resource_summary":
+			if pos.size() > 0:
+				_args["path"] = pos[0]
 
 
 func _run() -> Array:
+	if _op == "project_files":
+		return TreeProjectFilesScript.project_files(_args)
+	if _op == "resource_summary":
+		return TreeProjectSummaryScript.resource_summary(_args)
 	var scene: PackedScene = load(_scene_path)
 	if scene == null:
 		return ["cannot load scene: %s" % _scene_path, null]

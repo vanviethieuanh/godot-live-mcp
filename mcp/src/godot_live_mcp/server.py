@@ -46,6 +46,17 @@ def _project_dir() -> str:
     return os.getcwd()
 
 
+def _project_main_scene() -> str:
+    try:
+        setting = tree_client.request("get_setting", {"path": "application/run/main_scene"})
+        value = (setting or {}).get("value")
+        if value:
+            return str(value)
+    except tree_client.BridgeError:
+        pass
+    return ""
+
+
 ## Probe the live editor for its active scene path and the set of open scene
 ## tabs. Returns None when the editor bridge is unreachable.
 def _editor_probe() -> dict[str, Any] | None:
@@ -79,10 +90,30 @@ def _headless(op: str, scene_path: str, args: dict[str, Any]) -> Any:
         "--args",
         json.dumps(args),
     ]
+    return _run_headless(cmd, op)
+
+
+def _headless_project(op: str, args: dict[str, Any]) -> Any:
+    cmd = [
+        _godot_binary(),
+        "--headless",
+        "--path",
+        _project_dir(),
+        "-s",
+        _HEADLESS_SCRIPT,
+        "--",
+        op,
+        "--args",
+        json.dumps(args),
+    ]
+    return _run_headless(cmd, op)
+
+
+def _run_headless(cmd: list[str], op: str) -> Any:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"headless godot timed out editing {scene_path}") from exc
+        raise RuntimeError(f"headless godot timed out running {op}") from exc
     lines = proc.stdout.strip().splitlines()
     resp: Any = None
     if lines:
@@ -121,6 +152,20 @@ def _route(scene: str, op: str, args: dict[str, Any]) -> Any:
             if prev:
                 _bridge("focus_scene", {"path": prev})
     return _headless(op, scene, args)
+
+
+## Route a read-only project/resource op. When the editor is active and the
+## requested path is already the active scene, run through the bridge; otherwise
+## fall back to a headless read. These ops never open/focus tabs.
+def _route_project_read(op: str, args: dict[str, Any]) -> Any:
+    if not isinstance(args, dict):
+        raise RuntimeError("project/resource args must be a dictionary")
+    probe = _editor_probe()
+    if probe is None:
+        return _headless_project(op, args)
+    if probe.get("active"):
+        return _headless_project(op, args)
+    return _bridge(op, args)
 
 
 @mcp.tool()
@@ -303,6 +348,20 @@ def update_project_uids(dry_run: bool = False) -> dict[str, Any]:
 def project_get_setting(path: str) -> dict[str, Any]:
     """Read a project setting from the live editor's project.godot. `path` is either an exact setting name (e.g. "application/config/name", returns `{"path", "value"}`) or a simple filter — a prefix or `*` glob (e.g. "application/*", returns `{"path", "count", "settings"}` for every match). Writing settings (project_set_setting) is intentionally not implemented (unsafe to mutate project.godot)."""
     return _bridge("get_setting", {"path": path})
+
+
+@mcp.tool()
+def project_files(path: str = "res://", kind: str = "all", pattern: str = "", recursive: bool = True, limit: int = 500) -> dict[str, Any]:
+    """List project resource files under `path` as the engine sees them, with filtering by `kind` (scene, script, resource, texture, audio, all) and optional glob `pattern`. This is a read-only project inventory and does not start the game, trigger imports, or save files."""
+    args: dict[str, Any] = {"path": path, "kind": kind, "pattern": pattern, "recursive": recursive, "limit": limit}
+    return _route_project_read("project_files", args)
+
+
+@mcp.tool()
+def resource_summary(path: str, depth: int = 2, include_properties: bool = True, include_dependencies: bool = True, limit: int = 500) -> dict[str, Any]:
+    """Return a bounded semantic summary for a scene or resource at `path`. For scenes this includes the root node, node list, groups, signals, and external resource references. For resources this includes exported properties and dependencies. This tool is read-only and does not save files."""
+    args: dict[str, Any] = {"path": path, "depth": depth, "include_properties": include_properties, "include_dependencies": include_dependencies, "limit": limit}
+    return _route_project_read("resource_summary", args)
 
 
 def main() -> None:
