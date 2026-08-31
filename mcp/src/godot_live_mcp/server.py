@@ -292,6 +292,23 @@ def tree_remove(path: str, scene: str = "") -> dict[str, Any]:
 
 
 @mcp.tool()
+def tree_instance(
+    parent_path: str = "/",
+    scene_path: str = "",
+    node_name: str = "",
+    properties: dict[str, Any] | None = None,
+    scene: str = "",
+) -> dict[str, Any]:
+    """Instance a PackedScene (`scene_path`, a res:// .tscn path) as a child of `parent_path`, optionally renaming the instanced root via `node_name` and applying `properties` (overrides, same values as `tree_set`). Undoable and marks the scene unsaved when run on the live edited scene. If `scene` (res:// path) is given and it is not the scene currently being edited, the change is applied and saved on disk headlessly (not undoable)."""
+    args: dict[str, Any] = {"parent_path": parent_path, "scene": scene_path}
+    if node_name:
+        args["node_name"] = node_name
+    if properties:
+        args["properties"] = properties
+    return _route(scene, "instance", args)
+
+
+@mcp.tool()
 def create_scene(
     root_type: str,
     root_name: str,

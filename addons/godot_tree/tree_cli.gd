@@ -161,6 +161,15 @@ func _build_request() -> Dictionary:
 		"attach_script":
 			args["path"] = _op_args[0] if _op_args.size() > 0 else "/"
 			args["script"] = _op_args[1] if _op_args.size() > 1 else ""
+		"instance":
+			args["parent_path"] = _op_args[0] if _op_args.size() > 0 else "/"
+			args["scene"] = _op_args[1] if _op_args.size() > 1 else ""
+			if _op_args.size() > 2:
+				args["node_name"] = _op_args[2]
+			if _filters.has("properties"):
+				var parsed_props: Variant = JSON.parse_string(_filters["properties"] as String)
+				if parsed_props is Dictionary:
+					args["properties"] = parsed_props
 		"get_uid":
 			if _filters.has("uid"):
 				args["uid"] = _filters["uid"]

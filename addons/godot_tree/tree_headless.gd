@@ -23,7 +23,23 @@ var _args: Dictionary = {}
 func _init() -> void:
 	if not _parse_args():
 		return
-	var outcome := _run()
+	var root: Node = null
+	if _op not in ["project_files", "resource_summary"]:
+		var scene: PackedScene = load(_scene_path)
+		if scene == null:
+			printerr("ERROR: cannot load scene: %s" % _scene_path)
+			quit(1)
+			return
+		root = scene.instantiate()
+		if root == null:
+			printerr("ERROR: cannot instantiate scene: %s" % _scene_path)
+			quit(1)
+			return
+	var outcome := _run(root)
+	# Free the detached scene before quitting so the engine does not print
+	# RID/resource leak warnings to stdout after the JSON result line.
+	if root != null:
+		root.free()
 	var resp := {"id": 1, "ok": outcome[0].is_empty()}
 	if outcome[0].is_empty():
 		resp["result"] = outcome[1]
@@ -143,17 +159,11 @@ func _build_args_from_positional(pos: Array[String]) -> void:
 				_args["path"] = pos[0]
 
 
-func _run() -> Array:
+func _run(root: Node) -> Array:
 	if _op == "project_files":
 		return TreeProjectFilesScript.project_files(_args)
 	if _op == "resource_summary":
 		return TreeProjectSummaryScript.resource_summary(_args)
-	var scene: PackedScene = load(_scene_path)
-	if scene == null:
-		return ["cannot load scene: %s" % _scene_path, null]
-	var root := scene.instantiate()
-	if root == null:
-		return ["cannot instantiate scene: %s" % _scene_path, null]
 	match _op:
 		"scene":
 			return ["", _scene_info(root)]
@@ -187,6 +197,8 @@ func _run() -> Array:
 			return _write(root, TreeMutatorScript.set_property(root, null, _args))
 		"add":
 			return _write(root, TreeMutatorScript.add(root, null, _args))
+		"instance":
+			return _write(root, TreeMutatorScript.instance(root, null, _args))
 		"remove":
 			return _write(root, TreeMutatorScript.remove(root, null, _args))
 		"move":

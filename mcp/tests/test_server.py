@@ -165,6 +165,49 @@ async def test_tree_add_omits_empty_properties(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.anyio
+async def test_tree_instance_passes_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["op"] = op
+        captured["args"] = args
+        return {"path": "/City/Instanced"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "tree_instance",
+            {
+                "parent_path": "/City",
+                "scene_path": "res://scenes/ui/hud/turn_labels/turn_labels.tscn",
+                "node_name": "TurnLabels",
+                "properties": {"layout_mode": 2},
+            },
+        )
+    assert captured["op"] == "instance"
+    assert captured["args"] == {
+        "parent_path": "/City",
+        "scene": "res://scenes/ui/hud/turn_labels/turn_labels.tscn",
+        "node_name": "TurnLabels",
+        "properties": {"layout_mode": 2},
+    }
+
+
+@pytest.mark.anyio
+async def test_tree_instance_omits_empties(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake(op: str, args: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        captured["args"] = args
+        return {"path": "/City/Instanced"}
+
+    monkeypatch.setattr(tree_client, "request", fake)
+    async with Client(mcp) as client:
+        await client.call_tool("tree_instance", {"parent_path": "/City", "scene_path": "res://x.tscn"})
+    assert captured["args"] == {"parent_path": "/City", "scene": "res://x.tscn"}
+
+
+@pytest.mark.anyio
 async def test_tree_remove_and_move(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: list[Any] = []
 
@@ -627,6 +670,7 @@ async def test_tools_are_listed() -> None:
         "tree_add",
         "tree_remove",
         "tree_move",
+        "tree_instance",
         "attach_script",
         "create_scene",
         "log_read",

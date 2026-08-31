@@ -17,6 +17,7 @@ func _init() -> void:
 	failed = _test_remove() or failed
 	failed = _test_move() or failed
 	failed = _test_attach_script() or failed
+	failed = _test_instance() or failed
 	failed = _test_errors() or failed
 	failed = _test_action_naming() or failed
 	print("TREE MUTATOR TEST ", "PASS" if not failed else "FAIL")
@@ -179,6 +180,45 @@ func _test_action_naming() -> bool:
 	_check(TreeMutatorScript.last_action_name == "Remove Roof",
 		"empty prefix disables tagging: %s" % TreeMutatorScript.last_action_name, failed)
 	TreeMutatorScript.agent_action_prefix = "[agent] "
+	return failed[0]
+
+
+func _test_instance() -> bool:
+	var failed := [false]
+	var scene := _build_scene()
+	var ur := UndoRedo.new()
+
+	var instance_scene_path := "res://tests/fixture_instance_scene.tscn"
+	var inner := Node2D.new()
+	inner.name = "Inner"
+	var packed_root := Node2D.new()
+	packed_root.name = "FixtureRoot"
+	packed_root.add_child(inner)
+	inner.owner = packed_root
+	var packed := PackedScene.new()
+	_check(packed.pack(packed_root) == OK, "pack fixture instance scene", failed)
+	_check(ResourceSaver.save(packed, instance_scene_path) == OK, "save fixture instance scene", failed)
+
+	var outcome: Array = TreeMutatorScript.instance(scene, ur, {
+		"parent_path": "/Building",
+		"scene": instance_scene_path,
+		"node_name": "Instanced",
+	})
+	_check(outcome[0].is_empty(), "instance should succeed: %s" % str(outcome[0]), failed)
+	var inst: Node = scene.get_node_or_null("Building/Instanced")
+	_check(inst != null, "instanced node exists", failed)
+	if inst != null:
+		_check(inst.owner == scene, "instanced root owner is scene root", failed)
+		_check(inst.get_node_or_null("Inner") != null, "instanced children present", failed)
+		_check((inst.get_node_or_null("Inner") as Node).owner == inst,
+			"instanced child owner is the instance root", failed)
+	ur.undo()
+	_check(scene.get_node_or_null("Building/Instanced") == null, "undo removes instance", failed)
+	ur.redo()
+	inst = scene.get_node_or_null("Building/Instanced")
+	_check(inst != null and inst.owner == scene, "redo restores instance with owner", failed)
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(instance_scene_path))
 	return failed[0]
 
 

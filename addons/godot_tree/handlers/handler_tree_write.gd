@@ -9,7 +9,7 @@ const TreeMutatorScript := preload("res://addons/godot_tree/tree_mutator.gd")
 
 
 static func op_names() -> Array[String]:
-	return ["set", "add", "remove", "move", "attach_script", "create_scene"]
+	return ["set", "add", "remove", "move", "attach_script", "instance", "create_scene"]
 
 
 static func handle(server, op: String, args: Dictionary) -> Array:
@@ -26,6 +26,8 @@ static func handle(server, op: String, args: Dictionary) -> Array:
 			return TreeMutatorScript.move(root, ur, args)
 		"attach_script":
 			return TreeMutatorScript.attach_script(root, ur, args)
+		"instance":
+			return TreeMutatorScript.instance(root, ur, args)
 		"create_scene":
 			return TreeMutatorScript.create_scene(args)
 	return ["unknown op: %s" % op, null]

@@ -75,6 +75,48 @@ static func add(root: Node, undo_redo, params: Dictionary) -> Array:
 	return ["", {"path": TreeEngineScript.path_of(root, new_node)}]
 
 
+## Instance an existing PackedScene (res:// .tscn path) as a child of `parent_path`.
+## Optionally rename the instanced root and apply `properties` (overrides, following
+## the same values as `set`). Undoable and marks the scene unsaved when run on the
+## live edited scene; the editor serializes the child as an `instance=` reference.
+static func instance(root: Node, undo_redo, params: Dictionary) -> Array:
+	var parent_path := str(params.get("parent_path", "/"))
+	var parent := TreeEngineScript.resolve(root, parent_path)
+	if parent == null:
+		return ["parent node not found: %s" % parent_path, null]
+	var scene_path := str(params.get("scene", ""))
+	if scene_path.is_empty():
+		return ["scene (res:// .tscn path) is required", null]
+	if not ResourceLoader.exists(scene_path):
+		return ["scene not found: %s" % scene_path, null]
+	var packed: PackedScene = load(scene_path)
+	if packed == null:
+		return ["could not load scene: %s" % scene_path, null]
+	var instance_node := packed.instantiate()
+	if instance_node == null:
+		return ["could not instantiate scene: %s" % scene_path, null]
+	var node_name := str(params.get("node_name", ""))
+	if not node_name.is_empty():
+		instance_node.name = node_name
+	if params.has("properties") and params["properties"] is Dictionary:
+		var props := params["properties"] as Dictionary
+		for key: String in props:
+			if _is_settable(instance_node, key):
+				instance_node.set(key, _json_to_variant(instance_node, key, props[key]))
+	var ur := _undo_redo(undo_redo)
+	_create_action(ur, "Instance %s" % instance_node.name)
+	_do_method(ur, parent, "add_child", [instance_node])
+	_do_method(ur, instance_node, "set_owner", [root])
+	_undo_method(ur, parent, "remove_child", [instance_node])
+	ur.add_do_reference(instance_node)
+	ur.add_undo_reference(instance_node)
+	ur.commit_action()
+	return ["", {
+		"path": TreeEngineScript.path_of(root, instance_node),
+		"scene": scene_path,
+	}]
+
+
 static func remove(root: Node, undo_redo, params: Dictionary) -> Array:
 	var path := str(params.get("path", ""))
 	var node: Node = TreeEngineScript.resolve(root, path)
